@@ -265,7 +265,7 @@
                                    border: none; cursor: pointer;
                                    margin-top: 8px;
                                    transition: all 0.2s ease;">
-                        Se connecter
+                        Se connecter à votre compte 
                         <span class="material-symbols-rounded"
                               style="font-size: 18px;">
                             arrow_forward
