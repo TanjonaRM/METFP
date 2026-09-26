@@ -1,0 +1,40 @@
+<?php
+
+namespace App\Http\Controllers\Auth\Admin;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Infrastructure\Persistence\Eloquent\Models\AdminModel;
+
+class RegisterController extends Controller
+{
+    public function showRegistrationForm()
+    {
+        return view('auth.admin.register');
+    }
+
+    public function register(Request $request)
+    {
+        $validated = $request->validate([
+            'nom' => 'required|string|max:100',
+            'prenom' => 'required|string|max:100',
+            'email' => 'required|email|unique:admins,email',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        // [!]️ PAS de Hash::make() - le cast 'hashed' du modèle s'en charge
+        $admin = AdminModel::create([
+            'nom' => $validated['nom'],
+            'prenom' => $validated['prenom'],
+            'email' => $validated['email'],
+            'password' => $validated['password'],
+            'role' => 'admin',
+        ]);
+
+        Auth::guard('admin')->login($admin);
+
+        return redirect()->route('admin.dashboard')
+            ->with('success', 'Compte administrateur créé avec succès.');
+    }
+}

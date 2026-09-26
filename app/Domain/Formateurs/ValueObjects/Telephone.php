@@ -1,0 +1,73 @@
+<?php
+
+namespace Domain\Formateurs\ValueObjects;
+
+use InvalidArgumentException;
+
+class Telephone
+{
+    private ?string $value;
+
+    public function __construct(?string $value)
+    {
+        if ($value === null || trim($value) === '') {
+            $this->value = null;
+            return;
+        }
+
+        // Nettoyer : garder uniquement les chiffres et le +
+        $cleaned = preg_replace('/[^0-9+]/', '', $value);
+
+        if (empty($cleaned)) {
+            throw new InvalidArgumentException("Le numéro de téléphone est invalide.");
+        }
+
+        if (strlen($cleaned) < 7 || strlen($cleaned) > 20) {
+            throw new InvalidArgumentException(
+                "Le numéro de téléphone doit contenir entre 7 et 20 caractères."
+            );
+        }
+
+        $this->value = $cleaned;
+    }
+
+    public function getValue(): ?string
+    {
+        return $this->value;
+    }
+
+    public function isNull(): bool
+    {
+        return $this->value === null;
+    }
+
+    /**
+     * Format pour affichage : 034 12 345 67
+     */
+    public function getFormatted(): ?string
+    {
+        if ($this->value === null) {
+            return null;
+        }
+
+        // Format Madagascar : 0341234567 -> 034 12 345 67
+        if (strlen($this->value) === 10 && $this->value[0] === '0') {
+            return substr($this->value, 0, 3) . ' '
+                . substr($this->value, 3, 2) . ' '
+                . substr($this->value, 5, 3) . ' '
+                . substr($this->value, 8, 2);
+        }
+
+        return $this->value;
+    }
+
+    public function equals(Telephone $other): bool
+    {
+        return $this->value === $other->value;
+    }
+
+    public function __toString(): string
+    {
+        return $this->value ?? '';
+    }
+}

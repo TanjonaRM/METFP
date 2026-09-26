@@ -1,0 +1,88 @@
+@extends('layouts.admin')
+@section('title', 'Détail affectation')
+
+@section('content')
+
+<div class="mb-6">
+    <a href="{{ route('admin.affectations.index') }}"
+       class="inline-flex items-center gap-1 text-[12px] text-slate-500 hover:text-brand-700 mb-2">
+        <span class="material-symbols-rounded text-[16px]">arrow_back</span>
+        Retour à la liste
+    </a>
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="font-display text-2xl font-bold text-slate-900">Détail de l'affectation</h1>
+            <p class="text-sm text-slate-500 mt-1">Créée le {{ $affectation->created_at?->format('d/m/Y') }}</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('admin.affectations.edit', $affectation->id) }}" class="btn-primary">
+                <span class="material-symbols-rounded text-[18px]">edit</span>
+                Modifier
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    {{-- Fiche formateur --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Formateur</div>
+        <div class="flex items-center gap-3 mb-3">
+            <div class="avatar avatar-md avatar-primary">
+                {{ strtoupper(substr($affectation->formateur->prenom ?? 'U', 0, 1) . substr($affectation->formateur->nom ?? 'N', 0, 1)) }}
+            </div>
+            <div>
+                <div class="font-semibold">{{ $affectation->formateur->nom ?? '-' }} {{ $affectation->formateur->prenom ?? '' }}</div>
+                <div class="text-[11px] text-slate-500 font-mono">{{ $affectation->formateur->matricule ?? '' }}</div>
+            </div>
+        </div>
+        <a href="{{ route('admin.formateurs.show', $affectation->formateur->id ?? 0) }}"
+           class="text-[12px] font-semibold text-brand-700 hover:text-brand-800 inline-flex items-center gap-1">
+            Voir le profil complet
+            <span class="material-symbols-rounded text-[14px]">arrow_forward</span>
+        </a>
+    </div>
+
+    {{-- Filière --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Filière</div>
+        <div class="font-semibold">{{ $affectation->filiere->libelle ?? '-' }}</div>
+        <div class="text-[11px] text-slate-500 font-mono">{{ $affectation->filiere->code ?? '' }}</div>
+    </div>
+
+    {{-- Établissement --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Établissement</div>
+        <div class="font-semibold">{{ $affectation->etablissement->nom ?? '-' }}</div>
+        <div class="text-[11px] text-slate-500">{{ $affectation->etablissement->region ?? '' }}</div>
+    </div>
+
+    {{-- Période --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Période</div>
+        <div class="text-sm">
+            Du <strong>{{ $affectation->date_debut?->format('d/m/Y') }}</strong>
+            @if($affectation->date_fin)
+                au <strong>{{ $affectation->date_fin->format('d/m/Y') }}</strong>
+            @else
+                <span class="badge-success ml-2">En cours</span>
+            @endif
+        </div>
+    </div>
+
+    {{-- Statut --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Statut</div>
+        @if($affectation->statut === 'actif')
+            <span class="badge-success">Actif</span>
+        @elseif($affectation->statut === 'termine')
+            <span class="badge-gray">Terminé</span>
+        @else
+            <span class="badge-warning">Suspendu</span>
+        @endif
+    </div>
+
+</div>
+
+@endsection

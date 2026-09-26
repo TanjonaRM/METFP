@@ -1,0 +1,96 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+
+class ShowStructure extends Command
+{
+    protected $signature = 'project:structure 
+                            {--path=. : Chemin de départ}
+                            {--depth= : Profondeur maximale}';
+
+    protected $description = 'Affiche la structure du projet Laravel (sans vendor, node_modules, etc.)';
+
+    // Dossiers à exclure
+    protected array $excluded = [
+        'vendor',
+        'node_modules',
+        '.git',
+        '.idea',
+        '.vscode',
+        'storage',
+        'bootstrap/cache',
+        'public/build',
+        'public/storage',
+    ];
+
+    public function handle(): int
+    {
+        $basePath = base_path($this->option('path'));
+        $maxDepth = $this->option('depth');
+
+        $this->info("📁 Structure du projet : " . $basePath);
+        $this->newLine();
+
+        $this->renderTree($basePath, '', 0, $maxDepth);
+
+        return self::SUCCESS;
+    }
+
+    protected function renderTree(string $path, string $prefix, int $depth, $maxDepth): void
+    {
+        if ($maxDepth !== null && $depth >= (int) $maxDepth) {
+            return;
+        }
+
+        $items = scandir($path);
+        $items = array_filter($items, fn($i) => !in_array($i, ['.', '..']));
+
+        // Trier : dossiers d'abord, puis fichiers alphabétiquement
+        usort($items, function ($a, $b) use ($path) {
+            $aDir = is_dir($path . DIRECTORY_SEPARATOR . $a);
+            $bDir = is_dir($path . DIRECTORY_SEPARATOR . $b);
+            if ($aDir !== $bDir) return $bDir <=> $aDir;
+            return strcasecmp($a, $b);
+        });
+
+        $count = count($items);
+        $i = 0;
+
+        foreach ($items as $item) {
+            $i++;
+            $fullPath = $path . DIRECTORY_SEPARATOR . $item;
+            $relative = str_replace(base_path() . DIRECTORY_SEPARATOR, '', $fullPath);
+
+            // Vérifier exclusions
+            if ($this->isExcluded($relative, $item)) {
+                continue;
+            }
+
+            $isLast = ($i === $count);
+            $connector = $isLast ? '└── ' : '├── ';
+            $newPrefix = $prefix . ($isLast ? '    ' : '│   ');
+
+            if (is_dir($fullPath)) {
+                $this->line($prefix . $connector . '📁 <fg=yellow>' . $item . '</>');
+                $this->renderTree($fullPath, $newPrefix, $depth + 1, $maxDepth);
+            } else {
+                $this->line($prefix . $connector . '📄 ' . $item);
+            }
+        }
+    }
+
+    protected function isExcluded(string $relative, string $item): bool
+    {
+        foreach ($this->excluded as $excluded) {
+            $excluded = str_replace('/', DIRECTORY_SEPARATOR, $excluded);
+            if ($relative === $excluded || str_starts_with($relative, $excluded . DIRECTORY_SEPARATOR)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}

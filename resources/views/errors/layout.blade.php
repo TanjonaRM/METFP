@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>@yield('code') - SGFORMATEURS</title>
+
+    @vite(['resources/css/app.css'])
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+</head>
+<body class="font-sans bg-slate-50 text-slate-900 antialiased">
+
+<div class="min-h-screen flex flex-col items-center justify-center px-6 py-12 text-center">
+
+    {{-- Logo --}}
+    <a href="{{ url('/') }}" class="flex items-center gap-3 mb-10">
+        <div class="w-11 h-11 rounded-xl bg-brand-600 flex items-center justify-center">
+            <span class="material-symbols-rounded text-white text-2xl"
+                  style="font-variation-settings: 'FILL' 1;">school</span>
+        </div>
+        <div class="text-left leading-tight">
+            <div class="font-display font-bold text-slate-900">SGFORMATEURS</div>
+            <div class="text-[10px] text-slate-500">Système de Gestion des Formateurs</div>
+        </div>
+    </a>
+
+    {{-- Illustration --}}
+    <div class="relative mb-8">
+        <div class="absolute inset-0 flex items-center justify-center">
+            <div class="w-56 h-56 rounded-full bg-brand-100/60 blur-2xl"></div>
+        </div>
+        <div class="relative font-display font-extrabold text-[100px] sm:text-[140px]
+                    leading-none bg-gradient-to-br from-brand-500 to-brand-800
+                    bg-clip-text text-transparent animate-pulse-slow">
+            @yield('code')
+        </div>
+    </div>
+
+    <h1 class="font-display text-2xl sm:text-3xl font-bold text-slate-900">
+        @yield('titre')
+    </h1>
+    <p class="text-sm text-slate-500 mt-3 max-w-md leading-relaxed">
+        @yield('message')
+    </p>
+
+    <div class="flex flex-wrap items-center justify-center gap-3 mt-8">
+        <a href="{{ url('/') }}" class="btn-primary">
+            <span class="material-symbols-rounded text-[18px]">home</span>
+            Retour à l'accueil
+        </a>
+        <button onclick="history.back()" class="btn-secondary">
+            <span class="material-symbols-rounded text-[18px]">arrow_back</span>
+            Page précédente
+        </button>
+    </div>
+
+    <p class="text-[11px] text-slate-400 mt-12">
+        © {{ date('Y') }} SGFORMATEURS - Ministère de l'Enseignement Technique
+        et de la Formation Professionnelle
+    </p>
+</div>
+
+</body>
+</html>

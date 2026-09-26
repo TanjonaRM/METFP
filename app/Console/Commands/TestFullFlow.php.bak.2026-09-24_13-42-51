@@ -1,0 +1,178 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\File;
+
+class TestFullFlow extends Command
+{
+    protected $signature = 'test:full-flow';
+    protected $description = 'Test complet du système de validation formateur';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line('║   🧪 TEST COMPLET DU SYSTÈME                              ║');
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+
+        $ok = 0;
+        $fail = 0;
+
+        // 1. Colonnes DB
+        $this->line('');
+        $this->line('▶ 1. Colonnes DB');
+        $columns = Schema::getColumnListing('formateurs_users');
+        foreach (['statut', 'motif_refus', 'valide_le', 'valide_par'] as $col) {
+            if (in_array($col, $columns)) {
+                $this->info("   ✅ {$col}");
+                $ok++;
+            } else {
+                $this->error("   ❌ {$col}");
+                $fail++;
+            }
+        }
+
+        // 2. Mailables
+        $this->line('');
+        $this->line('▶ 2. Mailables');
+        foreach (['FormateurApprouveMail', 'FormateurRefuseMail'] as $m) {
+            if (class_exists("App\\Mail\\{$m}")) {
+                $this->info("   ✅ {$m}");
+                $ok++;
+            } else {
+                $this->error("   ❌ {$m}");
+                $fail++;
+            }
+        }
+
+        // 3. Vues email
+        $this->line('');
+        $this->line('▶ 3. Vues email');
+        foreach (['emails.formateur-approuve', 'emails.formateur-refuse'] as $v) {
+            if (view()->exists($v)) {
+                $this->info("   ✅ {$v}");
+                $ok++;
+            } else {
+                $this->error("   ❌ {$v}");
+                $fail++;
+            }
+        }
+
+        // 4. Vues auth
+        $this->line('');
+        $this->line('▶ 4. Vues auth formateur');
+        $authViews = [
+            'formateur.auth.login',
+            'formateur.auth.pending',
+            'formateur.auth.refused',
+        ];
+        foreach ($authViews as $v) {
+            if (view()->exists($v)) {
+                $this->info("   ✅ {$v}");
+                $ok++;
+            } else {
+                $this->error("   ❌ {$v}");
+                $fail++;
+            }
+        }
+
+        // 5. Vue admin
+        $this->line('');
+        $this->line('▶ 5. Vue admin');
+        if (view()->exists('admin.demandes-formateurs.index')) {
+            $this->info('   ✅ admin.demandes-formateurs.index');
+            $ok++;
+        } else {
+            $this->error('   ❌ admin.demandes-formateurs.index');
+            $fail++;
+        }
+
+        // 6. Controller admin
+        $this->line('');
+        $this->line('▶ 6. Controller admin');
+        if (class_exists('App\\Http\\Controllers\\Admin\\DemandeFormateurController')) {
+            $this->info('   ✅ DemandeFormateurController');
+            $ok++;
+        } else {
+            $this->error('   ❌ DemandeFormateurController');
+            $fail++;
+        }
+
+        // 7. Routes admin
+        $this->line('');
+        $this->line('▶ 7. Routes admin');
+        $routes = [
+            'admin.demandes-formateurs.index',
+            'admin.demandes-formateurs.approuver',
+            'admin.demandes-formateurs.refuser',
+        ];
+        foreach ($routes as $r) {
+            if (Route::has($r)) {
+                $this->info("   ✅ {$r}");
+                $ok++;
+            } else {
+                $this->error("   ❌ {$r}");
+                $fail++;
+            }
+        }
+
+        // 8. Middleware
+        $this->line('');
+        $this->line('▶ 8. Middleware');
+        $mwPath = app_path('Http/Middleware/FormateurMiddleware.php');
+        if (File::exists($mwPath)) {
+            $content = File::get($mwPath);
+            if (str_contains($content, 'statut')) {
+                $this->info('   ✅ FormateurMiddleware vérifie le statut');
+                $ok++;
+            } else {
+                $this->warn('   ⚠️  Ne vérifie pas le statut');
+                $fail++;
+            }
+        } else {
+            $this->error('   ❌ FormateurMiddleware.php introuvable');
+            $fail++;
+        }
+
+        // 9. Données DB
+        $this->line('');
+        $this->line('▶ 9. Données DB');
+        try {
+            $stats = \DB::table('formateurs_users')
+                ->select('statut', \DB::raw('count(*) as nb'))
+                ->groupBy('statut')
+                ->get();
+            foreach ($stats as $s) {
+                $this->line("   • {$s->statut} : {$s->nb}");
+                $ok++;
+            }
+        } catch (\Throwable $e) {
+            $this->warn('   ⚠️  ' . $e->getMessage());
+        }
+
+        // RÉSUMÉ
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line("║   ✅ {$ok} OK  |  ❌ {$fail} KO");
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+
+        if ($fail === 0) {
+            $this->line('');
+            $this->info('🎉 SYSTÈME PRÊT À 100% !');
+            $this->line('');
+            $this->line('👉 Testez maintenant :');
+            $this->line('   1. http://localhost:8000/admin/demandes-formateurs');
+            $this->line('   2. Cliquez sur Approuver ou Refuser');
+            $this->line('   3. Vérifiez le mail dans storage/logs/laravel.log');
+        } else {
+            $this->line('');
+            $this->warn('⚠️  Corrigez les erreurs ci-dessus');
+        }
+
+        return self::SUCCESS;
+    }
+}

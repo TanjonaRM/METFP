@@ -1,0 +1,86 @@
+@extends('layouts.formateur')
+@section('title', 'Détails de la session')
+
+@section('content')
+
+<div class="flex items-center gap-4 mb-8">
+    <a href="{{ route('formateur.sessions.index') }}"
+       class="w-10 h-10 rounded-xl bg-white border border-slate-200
+              flex items-center justify-center text-slate-600
+              hover:text-emerald-700 transition">
+        <span class="material-symbols-rounded">arrow_back</span>
+    </a>
+    <h1 class="font-display text-3xl font-bold text-slate-900">
+        Détails de la session
+    </h1>
+</div>
+
+<div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+    <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        <div class="md:col-span-2">
+            <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Code</p>
+            <p class="font-display font-bold text-xl text-slate-900 font-mono">
+                {{ $session->code }}
+            </p>
+        </div>
+
+        <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Filière</p>
+            <p class="font-semibold text-slate-900">
+                {{ $session->filiere->libelle ?? '-' }}
+            </p>
+        </div>
+
+        <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Établissement</p>
+            <p class="font-semibold text-slate-900">
+                {{ $session->etablissement->nom ?? '-' }}
+            </p>
+        </div>
+
+        <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Date début</p>
+            <p class="font-semibold text-slate-900">
+                {{ $session->date_debut?->format('d/m/Y') ?? '-' }}
+            </p>
+        </div>
+
+        <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Date fin</p>
+            <p class="font-semibold text-slate-900">
+                {{ $session->date_fin?->format('d/m/Y') ?? '-' }}
+            </p>
+        </div>
+
+        <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Places</p>
+            <p class="font-semibold text-slate-900">
+                {{ $session->nb_places ?? 0 }}
+            </p>
+        </div>
+
+        <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase mb-1">Statut</p>
+            @if($session->estEnCours())
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full
+                             text-[11px] font-semibold bg-emerald-50 text-emerald-700">
+                    En cours
+                </span>
+            @elseif($session->estTerminee())
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full
+                             text-[11px] font-semibold bg-slate-100 text-slate-600">
+                    Terminée
+                </span>
+            @else
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full
+                             text-[11px] font-semibold bg-green-50 text-green-700">
+                    À venir
+                </span>
+            @endif
+        </div>
+
+    </div>
+</div>
+
+@endsection

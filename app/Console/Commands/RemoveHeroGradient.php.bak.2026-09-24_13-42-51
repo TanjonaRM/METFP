@@ -1,0 +1,167 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class RemoveHeroGradient extends Command
+{
+    protected $signature = 'project:remove-hero-gradient
+                            {--backup : Sauvegarder le fichier existant (.bak)}
+                            {--force : Écraser sans confirmation}';
+
+    protected $description = 'Remplace le bandeau hero vert émeraude du dashboard formateur par un fond blanc';
+
+    public function handle(): int
+    {
+        $this->info("🎨 Suppression du dégradé vert sur la carte formateur");
+        $this->newLine();
+
+        $path = 'resources/views/formateur/dashboard/index.blade.php';
+        $fullPath = base_path($path);
+
+        if (!File::exists($fullPath)) {
+            $this->error("❌ Fichier introuvable : {$path}");
+            return self::FAILURE;
+        }
+
+        if ($this->option('backup')) {
+            $backupPath = $fullPath . '.bak.' . date('Y-m-d_H-i-s');
+            File::copy($fullPath, $backupPath);
+            $this->line("  💾 Backup : " . basename($backupPath));
+        }
+
+        $content = File::get($fullPath);
+        $originalSize = strlen($content);
+
+        // ============================================================
+        // 1. Remplacer le fond du hero : gradient → blanc
+        // ============================================================
+        $content = str_replace(
+            'bg-gradient-to-br from-emerald-600 via-teal-700 to-emerald-800',
+            'bg-white border border-slate-200',
+            $content
+        );
+
+        // ============================================================
+        // 2. Remplacer la couleur du texte : blanc → noir/gris
+        // ============================================================
+        // Le hero a "text-white" → on le retire
+        $content = preg_replace(
+            '/(rounded-3xl p-8 lg:p-10 )text-white( mb-6)/',
+            '$1$2',
+            $content
+        );
+
+        // ============================================================
+        // 3. Retirer les halos décoratifs (radial-gradient)
+        // ============================================================
+        // Supprimer les 2 divs avec radial-gradient
+        $content = preg_replace(
+            '/<div class="absolute -top-12 -right-12 w-64 h-64 rounded-full"\s*style="background: radial-gradient\(circle, rgba\(255,255,255,0\.15\) 0%, transparent 70%\);"><\/div>/s',
+            '',
+            $content
+        );
+        $content = preg_replace(
+            '/<div class="absolute -bottom-20 right-24 w-52 h-52 rounded-full"\s*style="background: radial-gradient\(circle, rgba\(255,255,255,0\.12\) 0%, transparent 70%\);"><\/div>/s',
+            '',
+            $content
+        );
+
+        // ============================================================
+        // 4. Adapter les couleurs de texte du hero
+        // ============================================================
+        // "text-[13px] text-white/80" (Bonjour) → text-slate-500
+        $content = str_replace(
+            'flex items-center gap-2 text-[13px] text-white/80 mb-2',
+            'flex items-center gap-2 text-[13px] text-slate-500 mb-2',
+            $content
+        );
+
+        // "font-display text-3xl lg:text-4xl font-bold" (Nom) → ajouter text-slate-900
+        // On ajoute la classe text-slate-900 à la balise h1
+        $content = str_replace(
+            '<h1 class="font-display text-3xl lg:text-4xl font-bold">',
+            '<h1 class="font-display text-3xl lg:text-4xl font-bold text-slate-900">',
+            $content
+        );
+
+        // ============================================================
+        // 5. Adapter les badges matricule/statut
+        // ============================================================
+        // "bg-white/15 backdrop-blur-sm" → "bg-emerald-50 border border-emerald-100"
+        $content = str_replace(
+            "inline-flex items-center gap-2 px-3 py-1.5 rounded-full\n                            bg-white/15 backdrop-blur-sm",
+            "inline-flex items-center gap-2 px-3 py-1.5 rounded-full\n                            bg-emerald-50 border border-emerald-100",
+            $content
+        );
+
+        // Le texte du matricule : text-white → text-emerald-700
+        $content = str_replace(
+            '<span class="text-sm font-mono">',
+            '<span class="text-sm font-mono text-emerald-700">',
+            $content
+        );
+
+        // Le badge statut
+        $content = str_replace(
+            "inline-flex items-center gap-2 px-3 py-1.5 rounded-full\n                                bg-white/15 backdrop-blur-sm",
+            "inline-flex items-center gap-2 px-3 py-1.5 rounded-full\n                                bg-emerald-50 border border-emerald-100",
+            $content
+        );
+
+        // Le texte du statut : text-white → text-emerald-700
+        $content = str_replace(
+            '<span class="text-sm font-semibold capitalize">',
+            '<span class="text-sm font-semibold capitalize text-emerald-700">',
+            $content
+        );
+
+        // ============================================================
+        // 6. Supprimer l'ombre verte
+        // ============================================================
+        $content = str_replace(
+            'shadow-[0_20px_40px_rgba(13,148,136,0.22)]',
+            'shadow-sm',
+            $content
+        );
+
+        // ============================================================
+        // 7. Adapter l'avatar
+        // ============================================================
+        // bg-white/15 backdrop-blur-sm + border-2 border-white/20
+        $content = str_replace(
+            "w-20 h-20 rounded-2xl bg-white/15 backdrop-blur-sm\n                    flex items-center justify-center\n                    border-2 border-white/20 shrink-0",
+            "w-20 h-20 rounded-2xl bg-emerald-50\n                    flex items-center justify-center\n                    border-2 border-emerald-100 shrink-0",
+            $content
+        );
+
+        // Le texte de l'avatar : text-white → text-emerald-700
+        $content = str_replace(
+            '<span class="text-white text-3xl font-bold">',
+            '<span class="text-emerald-700 text-3xl font-bold">',
+            $content
+        );
+
+        File::put($fullPath, $content);
+
+        $newSize = strlen($content);
+        $diff = $originalSize - $newSize;
+        $this->line("  ✅ {$path} mis à jour ({$diff} octets modifiés)");
+
+        $this->newLine();
+        $this->info("🧹 Nettoyage des caches...");
+        $this->call('view:clear');
+        $this->call('cache:clear');
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS : dégradé vert supprimé");
+        $this->line("  • Fond : blanc");
+        $this->line("  • Texte : noir/gris");
+        $this->line("  • Badges : vert clair");
+        $this->line("  • Avatar : vert clair");
+
+        return self::SUCCESS;
+    }
+}

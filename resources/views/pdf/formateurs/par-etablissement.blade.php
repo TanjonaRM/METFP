@@ -1,0 +1,73 @@
+@extends('pdf.layouts.base')
+@section('title', 'Formateurs par établissement')
+@section('doc-title', 'FORMATEURS PAR ÉTABLISSEMENT')
+@section('doc-subtitle', 'Nombre total : ' . $etablissements->count() . ' établissement(s)')
+
+@section('content')
+
+@forelse($etablissements as $etablissement)
+    <div class="info-box">
+        <h3>{{ $etablissement->nom }} - ({{ $etablissement->code }})</h3>
+        <table>
+            <tr>
+                <td style="width: 25%;"><strong>Type :</strong></td>
+                <td>{{ $etablissement->type ?? '-' }}</td>
+                <td style="width: 25%;"><strong>Région :</strong></td>
+                <td>{{ $etablissement->region ?? '-' }}</td>
+            </tr>
+            <tr>
+                <td><strong>Contact Responsable :</strong></td>
+                <td colspan="3">
+                    {{ $etablissement->contact_responsable ?? $etablissement->telephone ?? '-' }}
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 5%;">#</th>
+                <th style="width: 15%;">Matricule</th>
+                <th style="width: 28%;">Nom complet</th>
+                <th style="width: 22%;">Email</th>
+                <th style="width: 20%;">Grade</th>
+                <th style="width: 10%;">Statut</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($etablissement->formateurs as $i => $f)
+                <tr>
+                    <td>{{ $i + 1 }}</td>
+                    <td><strong>{{ $f->matricule }}</strong></td>
+                    <td>{{ $f->prenom }} {{ $f->nom }}</td>
+                    <td>{{ $f->email ?? '-' }}</td>
+                    <td>{{ $f->grade ?? '-' }}</td>
+                    <td><span class="badge badge-{{ $f->statut }}">{{ ucfirst($f->statut) }}</span></td>
+                </tr>
+            @empty
+                <tr><td colspan="6" class="no-data">Aucun formateur rattaché à cet établissement</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+    <p style="font-size: 10px; color: #666; margin-bottom: 20px;">
+        <strong>Total :</strong> {{ $etablissement->formateurs->count() }} formateur(s)
+    </p>
+@empty
+    <div class="no-data">Aucun établissement trouvé</div>
+@endforelse
+
+<div class="signatures">
+    <table>
+        <tr>
+            <td>
+                <div class="signature-block">
+                    <p class="title">Le Responsable</p>
+                    <p class="line">Nom et signature</p>
+                </div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+@endsection

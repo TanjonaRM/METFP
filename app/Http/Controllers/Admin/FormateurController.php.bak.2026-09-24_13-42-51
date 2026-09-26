@@ -1,0 +1,220 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Formateur\StoreFormateurRequest;
+use App\Http\Requests\Formateur\UpdateFormateurRequest;
+use Illuminate\Http\Request;
+use Infrastructure\Persistence\Eloquent\Models\EtablissementModel;
+use Infrastructure\Persistence\Eloquent\Models\FiliereModel;
+use Infrastructure\Persistence\Eloquent\Models\FormateurModel;
+use Infrastructure\Persistence\Eloquent\Models\HistoriqueFormateurModel;
+
+class FormateurController extends Controller
+{
+    // ═══════════════════════════════════════════════════════
+    // INDEX — liste des formateurs
+    // ═══════════════════════════════════════════════════════
+    public function index(Request $request)
+    {
+        $formateurs = FormateurModel::with(['etablissement', 'filiere'])
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $s = $request->search;
+                $q->where(function ($qq) use ($s) {
+                    $qq->where('nom', 'like', "%{$s}%")
+                       ->orWhere('prenom', 'like', "%{$s}%")
+                       ->orWhere('matricule', 'like', "%{$s}%");
+                });
+            })
+            ->when($request->filled('etablissement_id'), fn($q) => $q->where('etablissement_id', $request->etablissement_id))
+            ->when($request->filled('statut'), fn($q) => $q->where('statut', $request->statut))
+            ->orderBy('nom')
+            ->paginate(15)
+            ->withQueryString();
+
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+
+        // ⚡ Calcul du prochain matricule pour l'affichage
+        $lastFormateur = FormateurModel::orderBy('id', 'desc')->first();
+        $nextNum = $lastFormateur ? ((int) str_replace('FORM-', '', $lastFormateur->matricule)) + 1 : 1;
+        $nextMatricule = 'FORM-' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
+        $filieres       = FiliereModel::orderBy('libelle')->get();
+
+        return view('admin.formateurs.index', compact('formateurs', 'etablissements', 'filieres'));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // CREATE — formulaire (JSON si AJAX, sinon vue)
+    // ═══════════════════════════════════════════════════════
+        public function create(Request $request)
+    {
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+
+        // ⚡ Calcul du prochain matricule pour l'affichage
+        $lastFormateur = FormateurModel::orderBy('id', 'desc')->first();
+        $nextNum = $lastFormateur ? ((int) str_replace('FORM-', '', $lastFormateur->matricule)) + 1 : 1;
+        $nextMatricule = 'FORM-' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
+        $filieres       = FiliereModel::orderBy('libelle')->get();
+
+        // Requête AJAX → renvoyer JSON avec le HTML du formulaire
+        if ($request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+            // ⚡ Injection MANUELLE de $errors (indispensable pour @error et $errors->has())
+            $errors = session()->get('errors', new \Illuminate\Support\ViewErrorBag());
+
+            $html = view('admin.formateurs.partials._form', [
+                'etablissements' => $etablissements,
+                'filieres'       => $filieres,
+                'nextMatricule'  => $nextMatricule ?? '',
+                'errors'         => $errors,
+            ])->render();
+
+            return response()->json(['html' => $html]);
+        }
+
+        return view('admin.formateurs.create', compact('etablissements', 'filieres', 'nextMatricule'));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // STORE — enregistrement
+    // ═══════════════════════════════════════════════════════
+    public function store(StoreFormateurRequest $request)
+    {
+        $data = $request->validated();
+
+        // ⚡ AUTO-GÉNÉRATION DU MATRICULE
+        if (empty($data['matricule'])) {
+            $lastFormateur = FormateurModel::orderBy('id', 'desc')->first();
+            $nextNum = $lastFormateur ? ((int) str_replace('FORM-', '', $lastFormateur->matricule)) + 1 : 1;
+            $data['matricule'] = 'FORM-' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
+        }
+
+        $formateur = FormateurModel::create($data);
+
+        // Historique
+        try {
+                HistoriqueFormateurModel::create([
+            'formateur_id' => $formateur->id,
+            'type'         => 'statut',
+            'details'      => 'Formateur créé : ' . $formateur->nom . ' ' . $formateur->prenom,
+            'source'       => 'admin',
+            'survenu_le'   => now(),
+        ]);
+            } catch (\Throwable $e) {
+                \Log::warning('Historique non enregistré : ' . $e->getMessage());
+            }
+
+        // Réponse AJAX
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Formateur créé avec succès.',
+                'redirect' => route('admin.formateurs.index'),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.formateurs.index')
+            ->with('success', 'Formateur créé avec succès.');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // SHOW — détail
+    // ═══════════════════════════════════════════════════════
+    public function show(int $id)
+    {
+        $formateur = FormateurModel::with([
+            'etablissement',
+            'filiere',
+            'historiques',
+        ])->findOrFail($id);
+
+        return view('admin.formateurs.show', compact('formateur'));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // EDIT — formulaire d'édition
+    // ═══════════════════════════════════════════════════════
+    public function edit(int $id)
+    {
+        $formateur      = FormateurModel::findOrFail($id);
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+
+        // ⚡ Calcul du prochain matricule pour l'affichage
+        $lastFormateur = FormateurModel::orderBy('id', 'desc')->first();
+        $nextNum = $lastFormateur ? ((int) str_replace('FORM-', '', $lastFormateur->matricule)) + 1 : 1;
+        $nextMatricule = 'FORM-' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
+        $filieres       = FiliereModel::orderBy('libelle')->get();
+
+        return view('admin.formateurs.edit', compact('formateur', 'etablissements', 'filieres'));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // UPDATE — mise à jour
+    // ═══════════════════════════════════════════════════════
+    public function update(UpdateFormateurRequest $request, int $id)
+    {
+        $formateur = FormateurModel::findOrFail($id);
+        $data      = $request->validated();
+
+        $formateur->update($data);
+
+        try {
+                HistoriqueFormateurModel::create([
+            'formateur_id' => $formateur->id,
+            'type'         => 'statut',
+            'details'      => 'Formateur modifié : ' . $formateur->nom . ' ' . $formateur->prenom,
+            'source'       => 'admin',
+            'survenu_le'   => now(),
+        ]);
+            } catch (\Throwable $e) {
+                \Log::warning('Historique non enregistré : ' . $e->getMessage());
+            }
+
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Formateur mis à jour.',
+                'redirect' => route('admin.formateurs.index'),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.formateurs.index')
+            ->with('success', 'Formateur mis à jour.');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // DESTROY — suppression
+    // ═══════════════════════════════════════════════════════
+    public function destroy(int $id)
+    {
+        $formateur = FormateurModel::findOrFail($id);
+
+        try {
+                HistoriqueFormateurModel::create([
+            'formateur_id' => $formateur->id,
+            'type'         => 'statut',
+            'details'      => 'Formateur supprimé : ' . $formateur->nom . ' ' . $formateur->prenom,
+            'source'       => 'admin',
+            'survenu_le'   => now(),
+        ]);
+            } catch (\Throwable $e) {
+                \Log::warning('Historique non enregistré : ' . $e->getMessage());
+            }
+
+        $formateur->delete();
+
+        if (request()->ajax() || request()->wantsJson()) {
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Formateur supprimé.',
+                'redirect' => route('admin.formateurs.index'),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.formateurs.index')
+            ->with('success', 'Formateur supprimé.');
+    }
+}

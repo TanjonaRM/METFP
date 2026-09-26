@@ -1,0 +1,205 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class InstallFormateurRoutes extends Command
+{
+    protected $signature = 'project:install-formateur-routes
+                            {--backup : Sauvegarder les fichiers existants (.bak)}
+                            {--force : Écraser sans confirmation}';
+
+    protected $description = 'Crée les routes de l\'espace formateur (dashboard, affectations, sessions, profil)';
+
+    public function handle(): int
+    {
+        $this->info("🛠️  Installation des routes de l'espace formateur");
+        $this->newLine();
+
+        if (!$this->option('force') && !$this->confirm('Créer les routes formateur ?', true)) {
+            $this->warn('Annulé.');
+            return self::FAILURE;
+        }
+
+        // ============================================================
+        // 1. Créer routes/formateur.php
+        // ============================================================
+        $formateurRoutesPath = base_path('routes/formateur.php');
+
+        if ($this->option('backup') && File::exists($formateurRoutesPath)) {
+            File::copy($formateurRoutesPath, $formateurRoutesPath . '.bak.' . date('Y-m-d_H-i-s'));
+            $this->line("  [SAVE] Backup : routes/formateur.php");
+        }
+
+        File::put($formateurRoutesPath, $this->getFormateurRoutes());
+        $size = round(strlen($this->getFormateurRoutes()) / 1024, 2);
+        $this->line("  [OK] routes/formateur.php créé ({$size} Ko)");
+
+        // ============================================================
+        // 2. Vérifier / corriger bootstrap/app.php
+        // ============================================================
+        $bootstrapPath = base_path('bootstrap/app.php');
+
+        if (!File::exists($bootstrapPath)) {
+            $this->error("  [X] bootstrap/app.php introuvable");
+            return self::FAILURE;
+        }
+
+        $bootstrapContent = File::get($bootstrapPath);
+
+        if (!str_contains($bootstrapContent, "routes/formateur.php")) {
+            $this->warn("  [!]️  bootstrap/app.php ne charge pas routes/formateur.php");
+            $this->line("     -> Ajout automatique de la ligne...");
+
+            // Backup
+            if ($this->option('backup')) {
+                File::copy($bootstrapPath, $bootstrapPath . '.bak.' . date('Y-m-d_H-i-s'));
+                $this->line("     [SAVE] Backup : bootstrap/app.php");
+            }
+
+            // Ajouter la ligne manquante dans le bloc "then"
+            $pattern = '/(\$middleware->group\(base_path\(\'routes\/admin\.php\'\)\);\s*\n)/';
+            $replacement = '$1            Route::middleware(\'web\')->group(base_path(\'routes/formateur.php\'));' . "\n";
+
+            if (preg_match($pattern, $bootstrapContent)) {
+                $bootstrapContent = preg_replace($pattern, $replacement, $bootstrapContent);
+                File::put($bootstrapPath, $bootstrapContent);
+                $this->line("     [OK] Ligne ajoutée dans bootstrap/app.php");
+            } else {
+                $this->error("     [X] Impossible de trouver le point d'insertion");
+                $this->line("     -> Ajoutez manuellement cette ligne dans withRouting() :");
+                $this->line("       Route::middleware('web')->group(base_path('routes/formateur.php'));");
+            }
+        } else {
+            $this->line("  [OK] bootstrap/app.php charge déjà routes/formateur.php");
+        }
+
+        // ============================================================
+        // 3. Nettoyage des caches
+        // ============================================================
+        $this->newLine();
+        $this->info("[CLEAN] Nettoyage des caches...");
+        $this->call('route:clear');
+        $this->call('view:clear');
+        $this->call('cache:clear');
+        $this->call('config:clear');
+
+        // ============================================================
+        // 4. Vérification
+        // ============================================================
+        $this->newLine();
+        $this->info("[SEARCH] Vérification des routes...");
+
+        try {
+            // Recharger les routes
+            $routes = app('router')->getRoutes();
+
+            $requiredRoutes = [
+                'formateur.dashboard',
+                'formateur.affectations.index',
+                'formateur.sessions.index',
+                'formateur.profile.edit',
+            ];
+
+            $found = 0;
+            foreach ($requiredRoutes as $routeName) {
+                if ($routes->hasNamedRoute($routeName)) {
+                    $this->line("  [OK] {$routeName}");
+                    $found++;
+                } else {
+                    $this->line("  [X] {$routeName} - MANQUANTE");
+                }
+            }
+
+            $this->newLine();
+            if ($found === count($requiredRoutes)) {
+                $this->info("✨ SUCCÈS : {$found}/" . count($requiredRoutes) . " routes installées");
+            } else {
+                $this->warn("[!]️  Seulement {$found}/" . count($requiredRoutes) . " routes trouvées");
+                $this->line("   -> Vérifiez que les contrôleurs existent dans app/Http/Controllers/Formateur/");
+            }
+        } catch (\Exception $e) {
+            $this->warn("[!]️  Impossible de vérifier les routes : " . $e->getMessage());
+        }
+
+        $this->newLine();
+        $this->info("-> Testez maintenant :");
+        $this->line("   URL      : http://localhost:8000/formateur/login");
+        $this->line("   Email    : jean.rakoto@metfp.mg");
+        $this->line("   Password : password");
+
+        return self::SUCCESS;
+    }
+
+    protected function getFormateurRoutes(): string
+    {
+        return <<<'PHP'
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Formateur\DashboardController;
+use App\Http\Controllers\Formateur\AffectationController;
+use App\Http\Controllers\Formateur\SessionController;
+use App\Http\Controllers\Formateur\ProfileController;
+use App\Http\Controllers\Formateur\PdfFormateurController;
+
+/*
+|--------------------------------------------------------------------------
+| Routes de l'espace formateur
+|--------------------------------------------------------------------------
+|
+| Toutes les routes sont protégées par :
+|   - auth:formateur -> utilisateur connecté (guard formateur)
+|   - formateur      -> rôle formateur (middleware)
+|
+*/
+
+Route::middleware(['auth:formateur', 'formateur'])
+    ->prefix('formateur')
+    ->name('formateur.')
+    ->group(function () {
+
+        // ============================================================
+        // DASHBOARD
+        // ============================================================
+        Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+        // ============================================================
+        // AFFECTATIONS
+        // ============================================================
+        Route::prefix('affectations')->name('affectations.')->group(function () {
+            Route::get('/', [AffectationController::class, 'index'])->name('index');
+            Route::get('/{id}', [AffectationController::class, 'show'])->name('show');
+        });
+
+        // ============================================================
+        // SESSIONS
+        // ============================================================
+        Route::prefix('sessions')->name('sessions.')->group(function () {
+            Route::get('/', [SessionController::class, 'index'])->name('index');
+            Route::get('/{id}', [SessionController::class, 'show'])->name('show');
+        });
+
+        // ============================================================
+        // PROFIL
+        // ============================================================
+        Route::prefix('profile')->name('profile.')->group(function () {
+            Route::get('/', [ProfileController::class, 'edit'])->name('edit');
+            Route::put('/', [ProfileController::class, 'update'])->name('update');
+            Route::put('/password', [ProfileController::class, 'updatePassword'])->name('password');
+        });
+
+        // ============================================================
+        // PDF
+        // ============================================================
+        Route::prefix('pdf')->name('pdf.')->group(function () {
+            Route::get('/ma-fiche', [PdfFormateurController::class, 'maFiche'])->name('ma-fiche');
+            Route::get('/mes-affectations', [PdfFormateurController::class, 'mesAffectations'])->name('mes-affectations');
+            Route::get('/mes-sessions', [PdfFormateurController::class, 'mesSessions'])->name('mes-sessions');
+        });
+    });
+PHP;
+    }
+}

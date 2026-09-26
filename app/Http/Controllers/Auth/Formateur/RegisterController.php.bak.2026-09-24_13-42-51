@@ -1,0 +1,44 @@
+<?php
+
+namespace App\Http\Controllers\Auth\Formateur;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Infrastructure\Persistence\Eloquent\Models\FormateurUserModel;
+
+class RegisterController extends Controller
+{
+    public function showRegistrationForm()
+    {
+        return view('auth.formateur.register');
+    }
+
+    public function register(Request $request)
+    {
+        $validated = $request->validate([
+            'nom' => 'required|string|max:100',
+            'prenom' => 'required|string|max:100',
+            'email' => 'required|email|unique:formateurs_users,email',
+            'matricule' => 'required|string|unique:formateurs_users,matricule',
+            'telephone' => 'nullable|string|max:20',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        // ⚠️ PAS de Hash::make() — le cast 'hashed' du modèle s'en charge
+        $formateur = FormateurUserModel::create([
+            'nom' => $validated['nom'],
+            'prenom' => $validated['prenom'],
+            'email' => $validated['email'],
+            'matricule' => $validated['matricule'],
+            'telephone' => $validated['telephone'] ?? null,
+            'password' => $validated['password'],
+            'statut' => 'en_attente',
+        ]);
+
+        Auth::guard('formateur')->login($formateur);
+
+        return redirect()->route('formateur.dashboard')
+            ->with('success', 'Votre compte formateur a été créé. Il est en attente de validation.');
+    }
+}

@@ -1,0 +1,340 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class CreateFormateurLoginDesign extends Command
+{
+    protected $signature = 'create:formateur-login-design';
+    protected $description = 'Crée la page login formateur avec le même design que admin';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [THEME] LOGIN FORMATEUR - MÊME DESIGN QUE ADMIN              |');
+        $this->line('+==========================================================+');
+        $this->line('');
+
+        $path = resource_path('views/auth/formateur/login.blade.php');
+
+        // Créer le dossier si besoin
+        $dir = dirname($path);
+        if (!File::exists($dir)) {
+            File::makeDirectory($dir, 0755, true);
+        }
+
+        // Backup
+        if (File::exists($path)) {
+            File::copy($path, $path . '.bak.' . date('Y-m-d_His'));
+            $this->line('[SAVE] Backup créé');
+        }
+
+        File::put($path, $this->getView());
+        $this->info('[OK] Vue créée : auth/formateur/login.blade.php');
+
+        // Corriger le LoginController pour pointer vers la bonne vue
+        $ctrlPath = app_path('Http/Controllers/Auth/Formateur/LoginController.php');
+        if (File::exists($ctrlPath)) {
+            File::copy($ctrlPath, $ctrlPath . '.bak.' . date('Y-m-d_His'));
+            $content = File::get($ctrlPath);
+
+            // S'assurer que la vue chargée est la bonne
+            $content = str_replace(
+                "view('formateur.auth.login')",
+                "view('auth.formateur.login')",
+                $content
+            );
+
+            File::put($ctrlPath, $content);
+            $this->info('[OK] LoginController pointe vers auth.formateur.login');
+        }
+
+        // Vider les caches
+        $this->line('');
+        $this->line('> Vidage des caches');
+        $this->call('view:clear');
+        $this->call('optimize:clear');
+        $this->info('   [OK] Caches vidés');
+
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [SUCCESS] TERMINÉ                                              |');
+        $this->line('+==========================================================+');
+        $this->line('');
+        $this->line('-> Testez : http://localhost:8000/formateur/login (Ctrl+F5)');
+
+        return self::SUCCESS;
+    }
+
+    private function getView(): string
+    {
+        return <<<'BLADE'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Connexion Formateur - SG Formateurs</title>
+
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" rel="stylesheet" />
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-display { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .material-symbols-rounded {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+<div class="min-h-screen flex flex-col lg:flex-row">
+
+    {{-- =========================================================== --}}
+    {{-- PARTIE GAUCHE - Branding + Image                          --}}
+    {{-- =========================================================== --}}
+    <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden"
+         style="background: linear-gradient(135deg, #064e3b 0%, #047857 50%, #10b981 100%);">
+
+        {{-- Image de fond (bibliothèque/formation) --}}
+        <div class="absolute inset-0 opacity-20">
+            <img src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1600&q=80"
+                 alt="Formation" class="w-full h-full object-cover">
+        </div>
+
+        {{-- Overlay gradient --}}
+        <div class="absolute inset-0"
+             style="background: linear-gradient(135deg, rgba(6,78,59,0.95) 0%, rgba(4,120,87,0.85) 50%, rgba(16,185,129,0.75) 100%);"></div>
+
+        {{-- Contenu --}}
+        <div class="relative z-10 flex flex-col justify-between p-12 text-white w-full">
+
+            {{-- Logo --}}
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center border border-white/20">
+                    <span class="material-symbols-rounded text-white text-2xl">school</span>
+                </div>
+                <div>
+                    <div class="font-display font-bold text-lg">METFP</div>
+                    <div class="text-white/70 text-xs tracking-wider">MADAGASCAR</div>
+                </div>
+            </div>
+
+            {{-- Message principal --}}
+            <div class="my-auto max-w-md">
+                <div class="w-16 h-1 bg-emerald-300 rounded-full mb-6"></div>
+
+                <h1 class="font-display text-4xl lg:text-5xl font-bold leading-tight mb-6">
+                    Espace formateur,<br>
+                    <span class="text-emerald-300">sécurisé.</span>
+                </h1>
+
+                <p class="text-white/80 text-base leading-relaxed">
+                    Accédez à votre espace personnel pour consulter vos affectations, sessions et gérer votre profil.
+                </p>
+            </div>
+
+            {{-- Stats --}}
+            <div class="grid grid-cols-3 gap-6 pt-8 border-t border-white/20">
+                <div>
+                    <div class="font-display text-3xl font-bold">14+</div>
+                    <div class="text-white/70 text-xs tracking-wider mt-1">ÉTABLISSEMENTS</div>
+                </div>
+                <div>
+                    <div class="font-display text-3xl font-bold">80+</div>
+                    <div class="text-white/70 text-xs tracking-wider mt-1">FILIÈRES</div>
+                </div>
+                <div>
+                    <div class="font-display text-3xl font-bold">5</div>
+                    <div class="text-white/70 text-xs tracking-wider mt-1">NIVEAUX</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- =========================================================== --}}
+    {{-- PARTIE DROITE - Formulaire                                --}}
+    {{-- =========================================================== --}}
+    <div class="flex-1 flex flex-col bg-white">
+
+        {{-- Header --}}
+        <header class="flex items-center justify-between px-6 lg:px-12 py-6 border-b border-slate-100">
+            <div class="flex items-center gap-2">
+                <div class="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center">
+                    <span class="material-symbols-rounded text-white text-lg">school</span>
+                </div>
+                <span class="font-display font-bold text-slate-900 text-sm">SGFORMATEURS</span>
+            </div>
+
+            <a href="{{ url('/') }}"
+               class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900 transition">
+                <span class="material-symbols-rounded text-[18px]">arrow_back</span>
+                Retour
+            </a>
+        </header>
+
+        {{-- Formulaire --}}
+        <div class="flex-1 flex items-center justify-center px-6 lg:px-12 py-12">
+            <div class="w-full max-w-md">
+
+                {{-- Titre --}}
+                <div class="mb-8">
+                    <p class="text-xs font-bold text-emerald-600 tracking-wider mb-3">ESPACE FORMATEUR</p>
+                    <div class="w-12 h-0.5 bg-emerald-600 mb-6"></div>
+
+                    <h2 class="font-display text-4xl font-bold text-slate-900 mb-3">
+                        Connexion.
+                    </h2>
+                    <p class="text-slate-500 text-sm leading-relaxed">
+                        Accédez à votre espace personnel pour consulter vos affectations, sessions et gérer votre profil.
+                    </p>
+                </div>
+
+                {{-- Messages --}}
+                @if(session('success'))
+                    <div class="mb-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start gap-3">
+                        <span class="material-symbols-rounded text-emerald-600 text-[20px]">check_circle</span>
+                        <p class="text-sm text-emerald-800 flex-1">{{ session('success') }}</p>
+                    </div>
+                @endif
+
+                @if(session('error'))
+                    <div class="mb-5 p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3">
+                        <span class="material-symbols-rounded text-red-600 text-[20px]">error</span>
+                        <p class="text-sm text-red-800 flex-1">{{ session('error') }}</p>
+                    </div>
+                @endif
+
+                @if($errors->any())
+                    <div class="mb-5 p-4 rounded-xl bg-red-50 border border-red-200">
+                        <div class="flex items-start gap-3">
+                            <span class="material-symbols-rounded text-red-600 text-[20px] mt-0.5">error</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-red-800 mb-1">Erreur de connexion</p>
+                                <ul class="text-sm text-red-700 list-disc list-inside space-y-0.5">
+                                    @foreach($errors->all() as $err)
+                                        <li>{{ $err }}</li>
+                                    @endforeach
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                {{-- Formulaire --}}
+                <form method="POST" action="{{ route('formateur.login') }}" class="space-y-5">
+                    @csrf
+
+                    {{-- Email --}}
+                    <div>
+                        <label for="email" class="block text-xs font-bold text-slate-700 tracking-wider uppercase mb-2">
+                            Email
+                        </label>
+                        <input type="email" name="email" id="email"
+                               value="{{ old('email') }}"
+                               placeholder="votre.email@sgformateurs.mg"
+                               required autofocus
+                               class="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl
+                                      focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                                      focus:bg-white transition">
+                    </div>
+
+                    {{-- Mot de passe --}}
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label for="password" class="block text-xs font-bold text-slate-700 tracking-wider uppercase">
+                                Mot de passe
+                            </label>
+                            @if(Route::has('formateur.password.request'))
+                                <a href="{{ route('formateur.password.request') }}"
+                                   class="text-xs text-slate-500 hover:text-emerald-600 transition">
+                                    Oublié ?
+                                </a>
+                            @endif
+                        </div>
+                        <div class="relative">
+                            <input type="password" name="password" id="password"
+                                   placeholder="********"
+                                   required
+                                   class="w-full px-4 py-3 pr-12 text-sm bg-slate-50 border border-slate-200 rounded-xl
+                                          focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                                          focus:bg-white transition">
+                            <button type="button" onclick="togglePassword()"
+                                    class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition">
+                                <span class="material-symbols-rounded text-[20px]" id="eye-icon">visibility</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {{-- Remember --}}
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" name="remember" id="remember"
+                               class="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500">
+                        <label for="remember" class="text-sm text-slate-600 cursor-pointer">
+                            Se souvenir de moi
+                        </label>
+                    </div>
+
+                    {{-- Submit --}}
+                    <button type="submit"
+                            class="w-full inline-flex items-center justify-center gap-2 px-4 py-3.5
+                                   bg-emerald-600 text-white font-semibold text-sm rounded-xl
+                                   hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2
+                                   transition shadow-lg shadow-emerald-600/20">
+                        Se connecter
+                        <span class="material-symbols-rounded text-[18px]">arrow_forward</span>
+                    </button>
+                </form>
+
+                {{-- Liens --}}
+                <div class="mt-8 pt-6 border-t border-slate-100 flex items-center justify-between text-sm">
+                    <div class="text-slate-500">
+                        Pas de compte ?
+                        @if(Route::has('formateur.register'))
+                            <a href="{{ route('formateur.register') }}"
+                               class="text-emerald-600 font-semibold hover:underline">
+                                S'inscrire
+                            </a>
+                        @endif
+                    </div>
+
+                    @if(Route::has('admin.login'))
+                        <a href="{{ route('admin.login') }}"
+                           class="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 transition">
+                            Espace admin
+                            <span class="material-symbols-rounded text-[16px]">north_east</span>
+                        </a>
+                    @endif
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function togglePassword() {
+        const input = document.getElementById('password');
+        const icon = document.getElementById('eye-icon');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.textContent = 'visibility_off';
+        } else {
+            input.type = 'password';
+            icon.textContent = 'visibility';
+        }
+    }
+</script>
+
+</body>
+</html>
+BLADE;
+    }
+}

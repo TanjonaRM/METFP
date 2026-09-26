@@ -1,0 +1,170 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+
+class VerifyFormateurAuthSystem extends Command
+{
+    protected $signature = 'verify:formateur-auth';
+    protected $description = 'Vérifie l\'état du système d\'authentification formateur';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line('║   🔍 VÉRIFICATION SYSTÈME AUTH FORMATEUR                  ║');
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+
+        // 1. Table formateurs_users
+        $this->line('');
+        $this->line('▶ 1. Table formateurs_users');
+
+        if (!Schema::hasTable('formateurs_users')) {
+            $this->error('   ❌ Table inexistante !');
+            return self::FAILURE;
+        }
+
+        $columns = Schema::getColumnListing('formateurs_users');
+        $this->info('   ✅ Table existe');
+        $this->line('   Colonnes : ' . implode(', ', $columns));
+
+        $requiredColumns = ['statut', 'motif_refus', 'valide_le', 'valide_par'];
+        foreach ($requiredColumns as $col) {
+            if (in_array($col, $columns)) {
+                $this->info("   ✅ Colonne '{$col}' présente");
+            } else {
+                $this->warn("   ⚠️  Colonne '{$col}' MANQUANTE");
+            }
+        }
+
+        // 2. Données actuelles
+        $this->line('');
+        $this->line('▶ 2. Données actuelles');
+
+        try {
+            $total = DB::table('formateurs_users')->count();
+            $this->line("   Total : {$total} formateurs");
+
+            if (in_array('statut', $columns)) {
+                $stats = DB::table('formateurs_users')
+                    ->select('statut', DB::raw('count(*) as nb'))
+                    ->groupBy('statut')
+                    ->get();
+                foreach ($stats as $s) {
+                    $this->line("   • {$s->statut} : {$s->nb}");
+                }
+            } else {
+                $this->warn('   ⚠️  Colonne statut absente — tous les comptes seront en_attente par défaut');
+            }
+        } catch (\Throwable $e) {
+            $this->error('   ❌ Erreur : ' . $e->getMessage());
+        }
+
+        // 3. Controllers d'auth
+        $this->line('');
+        $this->line('▶ 3. Controllers Auth Formateur');
+
+        $controllers = [
+            'Http/Controllers/Auth/Formateur/LoginController.php',
+            'Http/Controllers/Auth/Formateur/RegisterController.php',
+            'Http/Controllers/Auth/Formateur/LogoutController.php',
+        ];
+
+        foreach ($controllers as $c) {
+            $p = app_path($c);
+            if (File::exists($p)) {
+                $this->info('   ✅ ' . basename($c) . ' (' . File::size($p) . ' octets)');
+            } else {
+                $this->warn('   ⚠️  ' . basename($c) . ' MANQUANT');
+            }
+        }
+
+        // 4. Middleware
+        $this->line('');
+        $this->line('▶ 4. Middleware Formateur');
+
+        $mwPath = app_path('Http/Middleware/FormateurMiddleware.php');
+        if (File::exists($mwPath)) {
+            $content = File::get($mwPath);
+            $this->info('   ✅ FormateurMiddleware.php (' . File::size($mwPath) . ' octets)');
+
+            if (str_contains($content, 'statut')) {
+                $this->info('   ✅ Vérifie le statut');
+            } else {
+                $this->warn('   ⚠️  Ne vérifie PAS le statut');
+            }
+        } else {
+            $this->warn('   ⚠️  FormateurMiddleware.php MANQUANT');
+        }
+
+        // 5. Routes
+        $this->line('');
+        $this->line('▶ 5. Routes formateur');
+
+        $routes = collect(\Route::getRoutes())->filter(fn($r) => str_starts_with($r->uri(), 'formateur/'));
+        $this->line("   {$routes->count()} routes trouvées");
+
+        foreach ($routes as $r) {
+            if (str_contains($r->uri(), 'register') || str_contains($r->uri(), 'login') || str_contains($r->uri(), 'pending')) {
+                $methods = implode('|', array_diff($r->methods(), ['HEAD']));
+                $this->line("   • {$methods} {$r->uri()}");
+            }
+        }
+
+        // 6. Vues auth
+        $this->line('');
+        $this->line('▶ 6. Vues Auth Formateur');
+
+        $views = [
+            'formateur/auth/login.blade.php',
+            'formateur/auth/register.blade.php',
+            'formateur/auth/pending.blade.php',
+            'formateur/auth/refused.blade.php',
+        ];
+
+        foreach ($views as $v) {
+            $p = resource_path('views/' . $v);
+            if (File::exists($p)) {
+                $this->info('   ✅ ' . $v . ' (' . File::size($p) . ' octets)');
+            } else {
+                $this->warn('   ⚠️  ' . $v . ' MANQUANT');
+            }
+        }
+
+        // 7. Configuration mail
+        $this->line('');
+        $this->line('▶ 7. Configuration Email (.env)');
+
+        $envPath = base_path('.env');
+        if (File::exists($envPath)) {
+            $env = File::get($envPath);
+
+            if (preg_match('/MAIL_MAILER=(\w+)/', $env, $m)) {
+                $this->info("   ✅ MAIL_MAILER = {$m[1]}");
+            }
+            if (preg_match('/MAIL_HOST=([^\n]+)/', $env, $m)) {
+                $this->line("   • MAIL_HOST = {$m[1]}");
+            }
+
+            if (str_contains($env, 'MAIL_MAILER=log')) {
+                $this->warn('   ⚠️  Les emails vont dans les logs (pas envoyés)');
+                $this->line('   👉 Pour tester : storage/logs/laravel.log');
+            }
+        }
+
+        // RÉSUMÉ
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line('║                    📊 RÉSUMÉ                              ║');
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+        $this->line('');
+        $this->line('👉 Envoyez-moi TOUT ce rapport.');
+        $this->line('   Je vous dirai quelles étapes sont nécessaires.');
+
+        return self::SUCCESS;
+    }
+}

@@ -1,0 +1,154 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class SimplifyPagination extends Command
+{
+    protected $signature = 'simplify:pagination';
+    protected $description = 'Pagination simplifiée sans doublons (desktop + mobile)';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [THEME] PAGINATION SIMPLIFIÉE (sans doublons)                |');
+        $this->line('+==========================================================+');
+        $this->line('');
+
+        $dir = resource_path('views/vendor/pagination');
+        if (!File::exists($dir)) {
+            File::makeDirectory($dir, 0755, true);
+        }
+
+        // Backup
+        foreach (['tailwind', 'bootstrap-4', 'bootstrap-5', 'default'] as $f) {
+            $p = $dir . '/' . $f . '.blade.php';
+            if (File::exists($p)) {
+                File::copy($p, $p . '.bak.' . date('Y-m-d_His'));
+            }
+        }
+        $this->line('[SAVE] Backups créés');
+
+        // Réécrire la vue
+        $viewContent = $this->getSimplifiedPagination();
+
+        File::put($dir . '/tailwind.blade.php', $viewContent);
+        File::put($dir . '/bootstrap-4.blade.php', $viewContent);
+        File::put($dir . '/bootstrap-5.blade.php', $viewContent);
+        File::put($dir . '/default.blade.php', $viewContent);
+
+        $this->info('   [OK] Toutes les vues de pagination réécrites (1 seule version)');
+
+        // Vider caches
+        $this->line('');
+        $this->line('> Vidage des caches');
+        $this->call('view:clear');
+        $this->call('optimize:clear');
+        $this->info('   [OK] Caches vidés');
+
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [SUCCESS] TERMINÉ                                              |');
+        $this->line('+==========================================================+');
+        $this->line('');
+        $this->line('-> Testez : http://localhost:8000/admin/filieres?page=2 (Ctrl+F5)');
+        $this->line('   -> UN SEUL message "Affichage de X à Y sur Z résultats"');
+        $this->line('   -> Précédent / Suivant en français');
+
+        return self::SUCCESS;
+    }
+
+    private function getSimplifiedPagination(): string
+    {
+        return <<<'BLADE'
+{{-- =========================================================== --}}
+{{-- Pagination FR - Version simplifiée (1 seul bloc)          --}}
+{{-- =========================================================== --}}
+
+@if ($paginator->hasPages())
+    <nav role="navigation" aria-label="Pagination"
+         class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mt-4 px-4 py-3 bg-white rounded-xl border border-slate-200">
+
+        {{-- Informations texte --}}
+        <div class="text-sm text-slate-600 text-center sm:text-left">
+            Affichage de
+            <span class="font-semibold text-slate-900">{{ $paginator->firstItem() }}</span>
+            à
+            <span class="font-semibold text-slate-900">{{ $paginator->lastItem() }}</span>
+            sur
+            <span class="font-semibold text-slate-900">{{ $paginator->total() }}</span>
+            résultats
+        </div>
+
+        {{-- Boutons --}}
+        <div class="flex items-center justify-center gap-1">
+
+            {{-- <-️ PRÉCÉDENT --}}
+            @if ($paginator->onFirstPage())
+                <span class="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                    <span class="hidden sm:inline">Précédent</span>
+                </span>
+            @else
+                <a href="{{ $paginator->previousPageUrl() }}" rel="prev"
+                   class="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                    <span class="hidden sm:inline">Précédent</span>
+                </a>
+            @endif
+
+            {{-- [NUM] Numéros de pages --}}
+            @foreach ($elements as $element)
+                @if (is_string($element))
+                    <span class="inline-flex items-center justify-center min-w-[36px] h-9 px-2 text-sm text-slate-400">
+                        {{ $element }}
+                    </span>
+                @endif
+
+                @if (is_array($element))
+                    @foreach ($element as $page => $url)
+                        @if ($page == $paginator->currentPage())
+                            <span class="inline-flex items-center justify-center min-w-[36px] h-9 px-3 text-sm font-semibold text-white bg-emerald-600 rounded-lg shadow-sm">
+                                {{ $page }}
+                            </span>
+                        @else
+                            <a href="{{ $url }}"
+                               class="inline-flex items-center justify-center min-w-[36px] h-9 px-3 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition">
+                                {{ $page }}
+                            </a>
+                        @endif
+                    @endforeach
+                @endif
+            @endforeach
+
+            {{-- ->️ SUIVANT --}}
+            @if ($paginator->hasMorePages())
+                <a href="{{ $paginator->nextPageUrl() }}" rel="next"
+                   class="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition">
+                    <span class="hidden sm:inline">Suivant</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+            @else
+                <span class="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-400 bg-slate-50 border border-slate-200 rounded-lg cursor-not-allowed">
+                    <span class="hidden sm:inline">Suivant</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </span>
+            @endif
+
+        </div>
+    </nav>
+@endif
+BLADE;
+    }
+}

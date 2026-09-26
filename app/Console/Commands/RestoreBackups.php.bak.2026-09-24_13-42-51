@@ -1,0 +1,295 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class RestoreBackups extends Command
+{
+    protected $signature = 'project:restore-backups
+                            {--list : Lister tous les backups disponibles}
+                            {--restore= : Restaurer un fichier (ex: resources/views/layouts/admin.blade.php)}
+                            {--all : Restaurer tous les derniers backups}
+                            {--force : Sans confirmation}';
+
+    protected $description = 'Liste et restaure les fichiers depuis les backups (.bak.*)';
+
+    public function handle(): int
+    {
+        if ($this->option('list')) {
+            return $this->listBackups();
+        }
+
+        if ($restore = $this->option('restore')) {
+            return $this->restoreSpecific($restore);
+        }
+
+        if ($this->option('all')) {
+            return $this->restoreAll();
+        }
+
+        return $this->listBackups();
+    }
+
+    // ============================================================
+    // LISTER LES BACKUPS
+    // ============================================================
+    protected function listBackups(): int
+    {
+        $this->info("📋 Backups disponibles");
+        $this->newLine();
+
+        $backups = $this->findAllBackups();
+
+        if (empty($backups)) {
+            $this->warn("Aucun backup trouvé.");
+            $this->newLine();
+            $this->line("💡 Les backups sont créés automatiquement avec l'option --backup");
+            return self::SUCCESS;
+        }
+
+        // Grouper par fichier original
+        $grouped = [];
+        foreach ($backups as $backup) {
+            $original = preg_replace('/\.bak\.\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/', '', $backup['relative']);
+            $grouped[$original][] = $backup;
+        }
+
+        // Compter
+        $totalFiles = count($grouped);
+        $totalBackups = count($backups);
+
+        $this->line("📊 <fg=cyan>{$totalBackups} backup(s)</> pour <fg=cyan>{$totalFiles} fichier(s)</>");
+        $this->newLine();
+
+        foreach ($grouped as $original => $versions) {
+            $this->line("<fg=yellow>📄 {$original}</>");
+            foreach ($versions as $v) {
+                $this->line("   • <fg=gray>{$v['date']}</> — {$v['size']} — <fg=gray>{$v['filename']}</>");
+            }
+            $this->newLine();
+        }
+
+        $this->info("💡 Commandes utiles :");
+        $this->line("   php artisan project:restore-backups --restore=resources/views/layouts/admin.blade.php");
+        $this->line("   php artisan project:restore-backups --all --force");
+
+        return self::SUCCESS;
+    }
+
+    // ============================================================
+    // RESTAURER UN FICHIER SPÉCIFIQUE
+    // ============================================================
+    protected function restoreSpecific(string $file): int
+    {
+        // Nettoyer le chemin (accepter avec ou sans base_path)
+        $file = str_replace('\\', '/', $file);
+        $file = ltrim($file, '/');
+
+        $this->info("🔄 Restauration : {$file}");
+        $this->newLine();
+
+        $fullPath = base_path($file);
+        $dir = dirname($fullPath);
+        $filename = basename($fullPath);
+
+        if (!File::exists($dir)) {
+            $this->error("❌ Dossier introuvable : {$dir}");
+            return self::FAILURE;
+        }
+
+        // Chercher les backups
+        $backups = glob($dir . '/' . $filename . '.bak.*');
+
+        if (empty($backups)) {
+            $this->error("❌ Aucun backup trouvé pour : {$file}");
+            $this->newLine();
+            $this->line("💡 Essayez :");
+            $this->line("   php artisan project:restore-backups --list");
+            return self::FAILURE;
+        }
+
+        // Trier par date (plus récent en premier)
+        usort($backups, fn($a, $b) => filemtime($b) - filemtime($a));
+
+        $this->line("📦 Backups disponibles pour ce fichier :");
+        $this->newLine();
+
+        foreach ($backups as $i => $b) {
+            $date = date('Y-m-d H:i:s', filemtime($b));
+            $size = round(filesize($b) / 1024, 2);
+            $this->line("  [<fg=cyan>{$i}</>] {$date} — {$size} Ko — <fg=gray>" . basename($b) . "</>");
+        }
+
+        $this->newLine();
+
+        // Choix
+        $choice = $this->ask('Quel backup restaurer ? (numéro, ou "cancel")', '0');
+
+        if ($choice === 'cancel' || !isset($backups[(int)$choice])) {
+            $this->warn("Annulé.");
+            return self::SUCCESS;
+        }
+
+        $selected = $backups[(int)$choice];
+
+        // Confirmation
+        if (!$this->option('force')) {
+            $confirm = $this->confirm(
+                "Restaurer " . basename($selected) . " par-dessus " . basename($fullPath) . " ?",
+                true
+            );
+            if (!$confirm) {
+                $this->warn("Annulé.");
+                return self::SUCCESS;
+            }
+        }
+
+        // Sauvegarder l'actuel avant restauration
+        if (File::exists($fullPath)) {
+            $preBackup = $fullPath . '.before-restore.' . date('Y-m-d_H-i-s');
+            File::copy($fullPath, $preBackup);
+            $this->line("  💾 Sauvegarde actuelle : " . basename($preBackup));
+        }
+
+        // Restaurer
+        File::copy($selected, $fullPath);
+        $this->line("  ✅ Fichier restauré : {$file}");
+
+        $this->newLine();
+        $this->info("🧹 Nettoyage des caches...");
+        $this->call('view:clear');
+        $this->call('cache:clear');
+        $this->call('route:clear');
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS : fichier restauré");
+
+        return self::SUCCESS;
+    }
+
+    // ============================================================
+    // RESTAURER TOUS LES DERNIERS BACKUPS
+    // ============================================================
+    protected function restoreAll(): int
+    {
+        $this->info("🔄 Restauration de TOUS les fichiers");
+        $this->newLine();
+
+        $backups = $this->findAllBackups();
+
+        if (empty($backups)) {
+            $this->warn("Aucun backup trouvé.");
+            return self::SUCCESS;
+        }
+
+        // Grouper par fichier original (garder le plus récent)
+        $grouped = [];
+        foreach ($backups as $backup) {
+            $original = preg_replace('/\.bak\.\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/', '', $backup['relative']);
+            if (!isset($grouped[$original]) || filemtime($backup['full_path']) > filemtime($grouped[$original]['full_path'])) {
+                $grouped[$original] = $backup;
+            }
+        }
+
+        $this->line("📊 Fichiers à restaurer : <fg=cyan>" . count($grouped) . "</>");
+        $this->newLine();
+
+        foreach ($grouped as $original => $backup) {
+            $this->line("  📄 {$original}");
+            $this->line("     ← {$backup['filename']} <fg=gray>({$backup['date']})</>");
+        }
+
+        $this->newLine();
+
+        if (!$this->option('force')) {
+            if (!$this->confirm("Confirmer la restauration de " . count($grouped) . " fichier(s) ?", false)) {
+                $this->warn("Annulé.");
+                return self::SUCCESS;
+            }
+        }
+
+        $this->newLine();
+        $this->info("🚀 Restauration en cours...");
+
+        $count = 0;
+        foreach ($grouped as $original => $backup) {
+            $targetPath = base_path($original);
+            $dir = dirname($targetPath);
+
+            if (!File::exists($dir)) {
+                File::makeDirectory($dir, 0755, true);
+            }
+
+            File::copy($backup['full_path'], $targetPath);
+            $this->line("  ✅ {$original}");
+            $count++;
+        }
+
+        $this->newLine();
+        $this->info("🧹 Nettoyage des caches...");
+        $this->call('view:clear');
+        $this->call('cache:clear');
+        $this->call('route:clear');
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS : {$count} fichier(s) restauré(s)");
+
+        return self::SUCCESS;
+    }
+
+    // ============================================================
+    // TROUVER TOUS LES BACKUPS
+    // ============================================================
+    protected function findAllBackups(): array
+    {
+        $basePath = base_path();
+        $backups = [];
+
+        // Dossiers à scanner récursivement
+        $dirs = [
+            'app',
+            'app/Http/Controllers',
+            'app/Http/Controllers/Admin',
+            'app/Http/Controllers/Formateur',
+            'app/Models',
+            'app/Infrastructure/Persistence/Eloquent/Models',
+            'resources/views',
+            'resources/views/layouts',
+            'resources/views/formateur',
+            'resources/views/admin',
+            'routes',
+            'config',
+            'database/migrations',
+        ];
+
+        foreach ($dirs as $dir) {
+            $fullDir = $basePath . '/' . $dir;
+
+            if (!File::isDirectory($fullDir)) {
+                continue;
+            }
+
+            $files = glob($fullDir . '/*.bak.*');
+
+            foreach ($files as $file) {
+                $relative = str_replace($basePath . DIRECTORY_SEPARATOR, '', $file);
+                $relative = str_replace('\\', '/', $relative);
+
+                $backups[] = [
+                    'relative'  => $relative,
+                    'full_path' => $file,
+                    'filename'  => basename($file),
+                    'size'      => round(filesize($file) / 1024, 2) . ' Ko',
+                    'date'      => date('Y-m-d H:i', filemtime($file)),
+                ];
+            }
+        }
+
+        // Trier par date (plus récent en premier)
+        usort($backups, fn($a, $b) => filemtime($b['full_path']) - filemtime($a['full_path']));
+
+        return $backups;
+    }
+}

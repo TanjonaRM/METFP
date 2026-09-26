@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Inscription approuvée</title>
+</head>
+<body style="font-family: Arial, sans-serif; background: #f9fafb; padding: 40px 20px; margin: 0;">
+    <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden;">
+        <div style="background: linear-gradient(135deg, #10b981, #047857); padding: 32px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 22px;">[OK] Inscription approuvée</h1>
+        </div>
+        <div style="padding: 32px;">
+            <p style="font-size: 15px; color: #0f172a;">Bonjour <strong>{{ $formateur->prenom }} {{ $formateur->nom }}</strong>,</p>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                Votre inscription sur <strong>SG Formateurs</strong> a été <strong style="color: #10b981;">approuvée</strong>.
+            </p>
+            @if($messageAdmin)
+                <div style="background: #ecfdf5; border-left: 4px solid #10b981; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0; font-size: 13px; color: #047857;">
+                        <strong>Message :</strong><br>{{ $messageAdmin }}
+                    </p>
+                </div>
+            @endif
+            <div style="text-align: center; margin: 32px 0;">
+                <a href="{{ route('formateur.login') }}"
+                   style="display: inline-block; background: #10b981; color: white; padding: 14px 32px; text-decoration: none; border-radius: 10px; font-weight: bold;">
+                    Se connecter ->
+                </a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

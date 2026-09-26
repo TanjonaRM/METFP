@@ -1,0 +1,66 @@
+<?php
+
+use App\Models\User;
+use Infrastructure\Persistence\Eloquent\Models\AdminModel;
+use Infrastructure\Persistence\Eloquent\Models\FormateurUserModel;
+
+return [
+
+    'defaults' => [
+        'guard' => env('AUTH_GUARD', 'web'),
+        'passwords' => env('AUTH_PASSWORD_BROKER', 'users'),
+    ],
+
+    'guards' => [
+        'web' => [
+            'driver' => 'session',
+            'provider' => 'users',
+        ],
+        'admin' => [
+            'driver' => 'session',
+            'provider' => 'admins',
+        ],
+        'formateur' => [
+            'driver' => 'session',
+            'provider' => 'formateurs_users',
+        ],
+    ],
+
+    'providers' => [
+        'users' => [
+            'driver' => 'eloquent',
+            'model' => env('AUTH_MODEL', User::class),
+        ],
+        'admins' => [
+            'driver' => 'eloquent',
+            'model' => AdminModel::class,
+        ],
+        'formateurs_users' => [
+            'driver' => 'eloquent',
+            'model' => FormateurUserModel::class,
+        ],
+    ],
+
+    'passwords' => [
+        'users' => [
+            'provider' => 'users',
+            'table' => 'password_reset_tokens',
+            'expire' => 60,
+            'throttle' => 60,
+        ],
+        'admins' => [
+            'provider' => 'admins',
+            'table' => 'password_reset_tokens',
+            'expire' => 60,
+            'throttle' => 60,
+        ],
+        'formateurs' => [
+            'provider' => 'formateurs_users',
+            'table' => 'password_reset_tokens',
+            'expire' => 60,
+            'throttle' => 60,
+        ],
+    ],
+
+    'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
+];

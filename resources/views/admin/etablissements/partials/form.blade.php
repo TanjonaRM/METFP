@@ -1,0 +1,157 @@
+{{-- =========================================================== --}}
+{{-- Formulaire Établissement                                    --}}
+{{-- Type : liste (CFP / LTP) - Nom : libre - Code : auto serveur--}}
+{{-- =========================================================== --}}
+
+@php
+    $errs = $errors ?? new \Illuminate\Support\ViewErrorBag();
+
+    // Types réels de votre DB : CFP et LTP
+    $types = [
+        'CFP' => 'CFP - Centre de Formation Professionnelle',
+        'LTP' => 'LTP - Lycée Technique Professionnel',
+    ];
+
+    // Régions réelles (à enrichir plus tard)
+    $regions = [
+        'Analamanga'      => 'Analamanga',
+        'Vakinankaratra'  => 'Vakinankaratra',
+        'Itasy'           => 'Itasy',
+        'Bongolava'       => 'Bongolava',
+        'Sofia'           => 'Sofia',
+        'Boeny'           => 'Boeny',
+        'Betsiboka'       => 'Betsiboka',
+        'Melaky'          => 'Melaky',
+        'Alaotra-Mangoro' => 'Alaotra-Mangoro',
+        'Atsinanana'      => 'Atsinanana',
+        'Analanjirofo'    => 'Analanjirofo',
+        'Vatovavy'        => 'Vatovavy',
+        'Fitovinany'      => 'Fitovinany',
+        'Atsimo-Atsinanana' => 'Atsimo-Atsinanana',
+        'Ihorombe'        => 'Ihorombe',
+        'Menabe'          => 'Menabe',
+        'Amoron\'i Mania' => 'Amoron\'i Mania',
+        'Haute Matsiatra' => 'Haute Matsiatra',
+        'Atsimo-Andrefana' => 'Atsimo-Andrefana',
+        'Androy'          => 'Androy',
+        'Anosy'           => 'Anosy',
+        'Diana'           => 'Diana',
+        'Sava'            => 'Sava',
+    ];
+@endphp
+
+@if ($errs->any())
+    <div class="mb-4 rounded-lg bg-red-50 border border-red-200 p-3">
+        <p class="text-sm font-semibold text-red-800 mb-1">[!]️ Erreurs :</p>
+        <ul class="text-xs text-red-700 list-disc list-inside space-y-0.5">
+            @foreach ($errs->all() as $err)
+                <li>{{ $err }}</li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
+<div class="space-y-4">
+
+    {{-- === Type === --}}
+    <div>
+        <label for="type" class="block text-xs font-semibold text-slate-700 mb-1">
+            Type <span class="text-red-500">*</span>
+        </label>
+        <select name="type" id="type" required
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                       focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="">- Sélectionner un type -</option>
+            @foreach($types as $code => $label)
+                <option value="{{ $code }}" @selected(old('type') === $code)>{{ $label }}</option>
+            @endforeach
+        </select>
+        @if($errs->has('type'))
+            <p class="text-xs text-red-600 mt-1">{{ $errs->first('type') }}</p>
+        @endif
+    </div>
+
+    {{-- === Nom === --}}
+    <div>
+        <label for="nom" class="block text-xs font-semibold text-slate-700 mb-1">
+            Nom <span class="text-red-500">*</span>
+        </label>
+        <input type="text" name="nom" id="nom"
+               value="{{ old('nom') }}"
+               placeholder="Ex: CFP AMBILOBE"
+               required
+               class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                      focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        <p class="text-[11px] text-slate-500 mt-1">
+            Le code sera généré automatiquement : <span class="font-mono">TYPE-PREMIER-MOT</span>
+        </p>
+        @if($errs->has('nom'))
+            <p class="text-xs text-red-600 mt-1">{{ $errs->first('nom') }}</p>
+        @endif
+    </div>
+
+    {{-- === Région === --}}
+    <div>
+        <label for="region" class="block text-xs font-semibold text-slate-700 mb-1">
+            Région <span class="text-red-500">*</span>
+        </label>
+        <select name="region" id="region" required
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                       focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="">- Sélectionner une région -</option>
+            @foreach($regions as $code => $label)
+                <option value="{{ $code }}" @selected(old('region') === $code)>{{ $label }}</option>
+            @endforeach
+        </select>
+        @if($errs->has('region'))
+            <p class="text-xs text-red-600 mt-1">{{ $errs->first('region') }}</p>
+        @endif
+    </div>
+
+    {{-- === Contact === --}}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="telephone" class="block text-xs font-semibold text-slate-700 mb-1">Téléphone</label>
+            <input type="text" name="telephone" id="telephone" value="{{ old('telephone') }}"
+                   placeholder="034 XX XXX XX"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div>
+            <label for="email" class="block text-xs font-semibold text-slate-700 mb-1">Email</label>
+            <input type="email" name="email" id="email" value="{{ old('email') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+    </div>
+
+    <div>
+        <label for="contact_responsable" class="block text-xs font-semibold text-slate-700 mb-1">
+            Contact responsable
+        </label>
+        <input type="text" name="contact_responsable" id="contact_responsable"
+               value="{{ old('contact_responsable') }}"
+               placeholder="Ex: M. RAKOTO Jean"
+               class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                      focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+    </div>
+
+    <div>
+        <label for="adresse" class="block text-xs font-semibold text-slate-700 mb-1">Adresse</label>
+        <textarea name="adresse" id="adresse" rows="2"
+                  class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                         focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">{{ old('adresse') }}</textarea>
+    </div>
+
+    <div>
+        <label for="statut" class="block text-xs font-semibold text-slate-700 mb-1">Statut</label>
+        <select name="statut" id="statut"
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                       focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="actif"   @selected(old('statut', 'actif') === 'actif')>Actif</option>
+            <option value="inactif" @selected(old('statut') === 'inactif')>Inactif</option>
+        </select>
+    </div>
+
+</div>

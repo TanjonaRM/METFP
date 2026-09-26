@@ -1,0 +1,395 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+class InspectRoles extends Command
+{
+    protected $signature = 'inspect:roles
+                            {--role= : Inspecter un seul rôle (admin ou formateur)}
+                            {--export= : Exporter dans un fichier}';
+
+    protected $description = 'Inspecte en profondeur les rôles Admin et Formateur';
+
+    protected array $report = [];
+
+    public function handle(): int
+    {
+        $this->output->writeln('');
+        $this->output->writeln('╔══════════════════════════════════════════════════════════════╗');
+        $this->output->writeln('║   🔍 INSPECTION DES RÔLES ADMIN & FORMATEUR                  ║');
+        $this->output->writeln('║   ' . str_pad(now()->format('Y-m-d H:i:s'), 58) . ' ║');
+        $this->output->writeln('╚══════════════════════════════════════════════════════════════╝');
+
+        $role = $this->option('role');
+
+        if (!$role || $role === 'admin') {
+            $this->inspectAdmin();
+        }
+
+        if (!$role || $role === 'formateur') {
+            $this->inspectFormateur();
+        }
+
+        $this->printSummary();
+
+        if ($file = $this->option('export')) {
+            File::put(storage_path('app/' . $file), implode("\n", $this->report));
+            $this->output->writeln("\n📄 Rapport exporté : storage/app/{$file}");
+        }
+
+        return self::SUCCESS;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ADMIN
+    // ═══════════════════════════════════════════════════════════════
+    private function inspectAdmin(): void
+    {
+        $this->section('👤 CÔTÉ ADMIN');
+
+        $this->subSection('1. Routes Admin');
+        $this->inspectRoutes('admin/', 'admin');
+
+        $this->subSection('2. Controllers Admin');
+        $this->inspectControllers('app/Http/Controllers/Admin');
+
+        $this->subSection('3. Vues Admin');
+        $this->inspectViews('admin');
+
+        $this->subSection('4. Middlewares Admin');
+        $this->inspectMiddleware('AdminMiddleware', 'RedirectIfAdmin');
+
+        $this->subSection('5. Auth Guard Admin');
+        $this->inspectAuthGuard('admin');
+
+        $this->subSection('6. Tables Admin');
+        $this->inspectAdminTables();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // FORMATEUR
+    // ═══════════════════════════════════════════════════════════════
+    private function inspectFormateur(): void
+    {
+        $this->section('👨‍🏫 CÔTÉ FORMATEUR');
+
+        $this->subSection('1. Routes Formateur');
+        $this->inspectRoutes('formateur/', 'formateur');
+
+        $this->subSection('2. Controllers Formateur');
+        $this->inspectControllers('app/Http/Controllers/Formateur');
+
+        $this->subSection('3. Vues Formateur');
+        $this->inspectViews('formateur');
+
+        $this->subSection('4. Middlewares Formateur');
+        $this->inspectMiddleware('FormateurMiddleware', 'RedirectIfFormateur');
+
+        $this->subSection('5. Auth Guard Formateur');
+        $this->inspectAuthGuard('formateur');
+
+        $this->subSection('6. Controllers Auth Formateur');
+        $this->inspectControllers('app/Http/Controllers/Auth/Formateur');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // HELPERS
+    // ═══════════════════════════════════════════════════════════════
+    private function section(string $title): void
+    {
+        $this->output->writeln('');
+        $this->output->writeln('╔' . str_repeat('═', 62) . '╗');
+        $this->output->writeln('║ ' . str_pad($title, 61) . '║');
+        $this->output->writeln('╚' . str_repeat('═', 62) . '╝');
+        $this->report[] = '';
+        $this->report[] = '## ' . $title;
+    }
+
+    private function subSection(string $title): void
+    {
+        $this->output->writeln('');
+        $this->output->writeln('▶ ' . $title);
+        $this->output->writeln(str_repeat('─', 62));
+        $this->report[] = '';
+        $this->report[] = '### ' . $title;
+    }
+
+    private function outputLine(string $message, string $type = 'info'): void
+    {
+        $prefix = match ($type) {
+            'ok'    => '   ✅',
+            'warn'  => '   ⚠️ ',
+            'error' => '   ❌',
+            'info'  => '   •',
+            default => '   ',
+        };
+        $this->output->writeln($prefix . ' ' . $message);
+        $this->report[] = $prefix . ' ' . $message;
+    }
+
+    private function outputSubLine(string $message): void
+    {
+        $this->output->writeln('     ' . $message);
+        $this->report[] = '     ' . $message;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 1. ROUTES
+    // ═══════════════════════════════════════════════════════════════
+    private function inspectRoutes(string $prefix, string $role): void
+    {
+        $routes = collect(Route::getRoutes())->filter(function ($r) use ($prefix) {
+            return str_starts_with($r->uri(), $prefix);
+        });
+
+        if ($routes->isEmpty()) {
+            $this->outputLine("Aucune route commençant par '{$prefix}'", 'warn');
+            return;
+        }
+
+        $this->outputLine("{$routes->count()} routes {$role} trouvées", 'ok');
+        $this->output->writeln('');
+
+        $broken = 0;
+        foreach ($routes as $route) {
+            $action = $route->getActionName();
+            if (!str_contains($action, '@')) continue;
+
+            [$class, $method] = explode('@', $action);
+            if (!class_exists($class) || !method_exists($class, $method)) {
+                $this->outputLine("CASSÉE : " . $route->uri() . " → {$action}", 'error');
+                $broken++;
+            }
+        }
+
+        if ($broken === 0) {
+            $this->outputLine("Toutes les routes sont valides ✅", 'ok');
+        } else {
+            $this->outputLine("{$broken} routes cassées !", 'error');
+        }
+
+        $this->output->writeln('');
+        $this->output->writeln('Détail des routes :');
+        foreach ($routes->sortBy('uri') as $route) {
+            $methods = implode('|', array_diff($route->methods(), ['HEAD']));
+            $this->outputSubLine(sprintf(
+                "%-8s %-42s → %s",
+                $methods,
+                $route->uri(),
+                str_replace('App\\Http\\Controllers\\', '', $route->getActionName())
+            ));
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 2. CONTROLLERS
+    // ═══════════════════════════════════════════════════════════════
+    private function inspectControllers(string $relPath): void
+    {
+        $dir = base_path($relPath);
+
+        if (!File::exists($dir)) {
+            $this->outputLine("Dossier introuvable : {$relPath}", 'warn');
+            return;
+        }
+
+        $files = File::allFiles($dir);
+        $total = 0;
+        $empty = 0;
+        $syntaxErrors = 0;
+
+        foreach ($files as $file) {
+            if ($file->getExtension() !== 'php') continue;
+            if (str_contains($file->getFilename(), '.bak')) continue;
+
+            $total++;
+            $content = File::get($file->getPathname());
+            $name = $file->getFilenameWithoutExtension();
+
+            if (preg_match_all('/public function (\w+)\s*\([^)]*\)\s*\{\s*\}/s', $content, $m)) {
+                foreach ($m[1] as $method) {
+                    if (in_array($method, ['__construct'])) continue;
+                    $this->outputLine("{$name}::{$method}() est vide", 'warn');
+                    $empty++;
+                }
+            }
+
+            $output = [];
+            $returnCode = 0;
+            exec('php -l "' . $file->getPathname() . '" 2>&1', $output, $returnCode);
+            if ($returnCode !== 0) {
+                $this->outputLine("{$name} → ERREUR SYNTAXE", 'error');
+                foreach ($output as $o) $this->outputSubLine($o);
+                $syntaxErrors++;
+            }
+        }
+
+        if ($empty === 0 && $syntaxErrors === 0) {
+            $this->outputLine("{$total} controllers OK ✅", 'ok');
+        } else {
+            $this->outputLine("{$total} controllers — {$empty} méthodes vides, {$syntaxErrors} erreurs syntaxe", 'warn');
+        }
+
+        $this->output->writeln('');
+        $this->output->writeln('Liste :');
+        foreach ($files as $file) {
+            if ($file->getExtension() !== 'php') continue;
+            if (str_contains($file->getFilename(), '.bak')) continue;
+            $size = File::size($file->getPathname());
+            $this->outputSubLine("{$file->getFilename()} ({$size} octets)");
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 3. VUES
+    // ═══════════════════════════════════════════════════════════════
+    private function inspectViews(string $prefix): void
+    {
+        $dir = resource_path('views/' . $prefix);
+
+        if (!File::exists($dir)) {
+            $this->outputLine("Dossier introuvable : resources/views/{$prefix}", 'warn');
+            return;
+        }
+
+        $files = File::allFiles($dir);
+        $total = count($files);
+        $empty = 0;
+
+        foreach ($files as $file) {
+            if (File::size($file->getPathname()) === 0) {
+                $this->outputLine("VIDE : " . $file->getFilename(), 'error');
+                $empty++;
+            }
+        }
+
+        if ($empty === 0) {
+            $this->outputLine("{$total} vues {$prefix} OK ✅", 'ok');
+        } else {
+            $this->outputLine("{$total} vues — {$empty} vides", 'error');
+        }
+
+        $this->output->writeln('');
+        $this->output->writeln('Structure :');
+        $tree = [];
+        foreach ($files as $file) {
+            $rel = str_replace($dir . DIRECTORY_SEPARATOR, '', $file->getPathname());
+            $rel = str_replace(DIRECTORY_SEPARATOR, '/', $rel);
+            $tree[] = $rel;
+        }
+        sort($tree);
+        foreach ($tree as $t) {
+            $this->outputSubLine($t);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 4. MIDDLEWARE
+    // ═══════════════════════════════════════════════════════════════
+    private function inspectMiddleware(string ...$names): void
+    {
+        $dir = app_path('Http/Middleware');
+
+        foreach ($names as $name) {
+            $path = $dir . DIRECTORY_SEPARATOR . $name . '.php';
+            if (File::exists($path)) {
+                $size = File::size($path);
+                $hasHandle = str_contains(File::get($path), 'public function handle');
+                $status = $hasHandle ? '✅' : '⚠️ pas de handle()';
+                $this->outputLine("{$name} ({$size} octets) {$status}", 'ok');
+            } else {
+                $this->outputLine("Middleware {$name} introuvable", 'warn');
+            }
+        }
+
+        $this->output->writeln('');
+        $this->output->writeln('Tous les middlewares :');
+        foreach (File::files($dir) as $f) {
+            if ($f->getExtension() !== 'php') continue;
+            $this->outputSubLine($f->getFilename());
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 5. AUTH GUARD
+    // ═══════════════════════════════════════════════════════════════
+    private function inspectAuthGuard(string $guardName): void
+    {
+        $configPath = config_path('auth.php');
+
+        if (!File::exists($configPath)) {
+            $this->outputLine("config/auth.php introuvable", 'error');
+            return;
+        }
+
+        $auth = include $configPath;
+
+        if (isset($auth['guards'][$guardName])) {
+            $guard = $auth['guards'][$guardName];
+            $this->outputLine("Guard '{$guardName}' défini ✅", 'ok');
+            $this->outputSubLine("Driver : " . ($guard['driver'] ?? '?'));
+            $this->outputSubLine("Provider : " . ($guard['provider'] ?? '?'));
+
+            $providerName = $guard['provider'] ?? null;
+            if ($providerName && isset($auth['providers'][$providerName])) {
+                $provider = $auth['providers'][$providerName];
+                $this->outputLine("Provider '{$providerName}' ✅", 'ok');
+                $this->outputSubLine("Driver : " . ($provider['driver'] ?? '?'));
+                $this->outputSubLine("Model : " . ($provider['model'] ?? '?'));
+
+                if (!class_exists($provider['model'] ?? '')) {
+                    $this->outputLine("Modèle introuvable : " . ($provider['model'] ?? '?'), 'error');
+                } else {
+                    $this->outputLine("Modèle " . $provider['model'] . " existe ✅", 'ok');
+                }
+            }
+        } else {
+            $this->outputLine("Guard '{$guardName}' NON DÉFINI dans config/auth.php", 'error');
+        }
+
+        $default = $auth['defaults']['guard'] ?? 'web';
+        $this->outputLine("Guard par défaut : {$default}", 'info');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 6. TABLES ADMIN
+    // ═══════════════════════════════════════════════════════════════
+    private function inspectAdminTables(): void
+    {
+        $tables = ['admins', 'users', 'formateurs'];
+
+        foreach ($tables as $table) {
+            try {
+                if (Schema::hasTable($table)) {
+                    $count = DB::table($table)->count();
+                    $this->outputLine("Table '{$table}' : {$count} ligne(s) ✅", 'ok');
+                } else {
+                    $this->outputLine("Table '{$table}' n'existe pas", 'warn');
+                }
+            } catch (\Throwable $e) {
+                $this->outputLine("Table '{$table}' : erreur DB", 'error');
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // RAPPORT FINAL
+    // ═══════════════════════════════════════════════════════════════
+    private function printSummary(): void
+    {
+        $this->output->writeln('');
+        $this->output->writeln('╔══════════════════════════════════════════════════════════════╗');
+        $this->output->writeln('║                       📊 RÉSUMÉ                              ║');
+        $this->output->writeln('╚══════════════════════════════════════════════════════════════╝');
+        $this->output->writeln('');
+        $this->output->writeln('👉 Envoyez-moi TOUT ce rapport pour analyse.');
+        $this->output->writeln('');
+        $this->output->writeln('💡 Astuce : utilisez --export=rapport-roles.txt pour sauvegarder');
+    }
+}

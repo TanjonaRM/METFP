@@ -1,0 +1,467 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+class FullProjectAudit extends Command
+{
+    protected $signature = 'audit:full
+                            {--export= : Exporter le rapport}
+                            {--only= : Catégorie uniquement}';
+
+    protected $description = 'Audit complet du projet Laravel';
+
+    protected array $issues = [];
+    protected array $warnings = [];
+    protected array $ok = [];
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   🔬 AUDIT COMPLET DU PROJET LARAVEL                     |');
+        $this->line('|   ' . str_pad(now()->format('Y-m-d H:i:s'), 54) . ' |');
+        $this->line('+==========================================================+');
+
+        $categories = [
+            'routes'      => 'Routes & Controllers',
+            'controllers' => 'Contrôleurs - méthodes vides',
+            'views'       => 'Vues Blade',
+            'models'      => 'Modèles Eloquent',
+            'requests'    => 'Form Requests',
+            'migrations'  => 'Migrations & Base de données',
+            'files'       => 'Fichiers orphelins & .bak',
+            'logs'        => 'Erreurs récentes dans les logs',
+            'security'    => 'Sécurité',
+        ];
+
+        $only = $this->option('only');
+
+        foreach ($categories as $key => $label) {
+            if ($only && $only !== $key) continue;
+
+            $this->line('');
+            $this->line('> ' . $label);
+            $this->line(str_repeat('-', 60));
+
+            match ($key) {
+                'routes'      => $this->checkRoutes(),
+                'controllers' => $this->checkControllers(),
+                'views'       => $this->checkViews(),
+                'models'      => $this->checkModels(),
+                'requests'    => $this->checkRequests(),
+                'migrations'  => $this->checkMigrations(),
+                'files'       => $this->checkFiles(),
+                'logs'        => $this->checkLogs(),
+                'security'    => $this->checkSecurity(),
+            };
+        }
+
+        $this->printFinalReport();
+
+        if ($file = $this->option('export')) {
+            $this->exportToFile($file);
+        }
+
+        return self::SUCCESS;
+    }
+
+    // ===========================================================
+    // 1. ROUTES
+    // ===========================================================
+    private function checkRoutes(): void
+    {
+        $routes = Route::getRoutes();
+        $total = 0;
+        $broken = 0;
+
+        foreach ($routes as $route) {
+            $total++;
+            $action = $route->getActionName();
+
+            if (!str_contains($action, '@')) continue;
+
+            [$class, $method] = explode('@', $action);
+            if (!class_exists($class)) {
+                $this->addIssue("Controller inexistant : {$class}");
+                $broken++;
+                continue;
+            }
+            if (!method_exists($class, $method)) {
+                $this->addIssue("Méthode manquante : {$class}@{$method}");
+                $broken++;
+            }
+        }
+
+        if ($broken === 0) {
+            $this->addOk("{$total} routes valides [OK]");
+        }
+    }
+
+    // ===========================================================
+    // 2. CONTROLLERS
+    // ===========================================================
+    private function checkControllers(): void
+    {
+        $files = File::allFiles(app_path('Http/Controllers'));
+        $emptyMethods = 0;
+
+        foreach ($files as $file) {
+            if ($file->getExtension() !== 'php') continue;
+            if (str_contains($file->getFilename(), '.bak')) continue;
+
+            $content = File::get($file->getPathname());
+            $rel = str_replace(app_path() . DIRECTORY_SEPARATOR, '', $file->getPathname());
+
+            // Méthodes vides
+            if (preg_match_all('/public function (\w+)\s*\([^)]*\)\s*\{\s*\}/s', $content, $m)) {
+                foreach ($m[1] as $method) {
+                    if (in_array($method, ['__construct', '__invoke'])) continue;
+                    $this->addWarning("{$rel} -> {$method}() vide");
+                    $emptyMethods++;
+                }
+            }
+
+            // TODO/FIXME
+            if (preg_match_all('/(TODO|FIXME|XXX|HACK)/i', $content, $m2)) {
+                $this->addWarning("{$rel} -> " . count($m2[0]) . " TODO/FIXME");
+            }
+        }
+
+        if ($emptyMethods === 0) {
+            $this->addOk('Aucune méthode vide [OK]');
+        }
+    }
+
+    // ===========================================================
+    // 3. VUES  [AJAX] VERSION CORRIGÉE
+    // ===========================================================
+    private function checkViews(): void
+    {
+        $viewsDir = resource_path('views');
+
+        // -- 3.1 Collecter toutes les vues existantes --
+        $existingViews = [];
+        foreach (File::allFiles($viewsDir) as $v) {
+            if (str_contains($v->getFilename(), '.bak')) continue;
+            if (!str_ends_with($v->getFilename(), '.blade.php')) continue;
+
+            $relative = str_replace(
+                [$viewsDir . DIRECTORY_SEPARATOR, '.blade.php'],
+                ['', ''],
+                $v->getPathname()
+            );
+            $relative = str_replace(DIRECTORY_SEPARATOR, '.', $relative);
+            $relative = str_replace('/', '.', $relative);
+            $existingViews[] = $relative;
+        }
+
+        // -- 3.2 Collecter toutes les références --
+        $referenced = [];
+
+        // Sources à scanner : app/ + resources/views/
+        $sources = [];
+        foreach (File::allFiles(app_path()) as $f) {
+            if ($f->getExtension() === 'php' && !str_contains($f->getFilename(), '.bak')) {
+                // Ignorer les scripts d'installation et ce fichier d'audit
+            if (str_starts_with($f->getFilename(), 'Install')) continue;
+            if ($f->getFilename() === 'FullProjectAudit.php') continue;
+            $sources[] = $f;
+            }
+        }
+        foreach (File::allFiles($viewsDir) as $f) {
+            if (str_ends_with($f->getFilename(), '.blade.php') && !str_contains($f->getFilename(), '.bak')) {
+                // Ignorer les scripts d'installation et ce fichier d'audit
+            if (str_starts_with($f->getFilename(), 'Install')) continue;
+            if ($f->getFilename() === 'FullProjectAudit.php') continue;
+            $sources[] = $f;
+            }
+        }
+
+        foreach ($sources as $file) {
+            $content = File::get($file->getPathname());
+
+            // @include / @extends / @component
+            preg_match_all('/@(?:include|extends|component)\s*\(\s*[\'"]([a-zA-Z0-9_.\-]+)[\'"]/', $content, $m);
+            foreach ($m[1] as $ref) $referenced[$ref] = $file->getFilename();
+
+            // view('...')
+            preg_match_all('/view\s*\(\s*[\'"]([^\'"]+)[\'"]/', $content, $m2);
+            foreach ($m2[1] as $ref) $referenced[$ref] = $file->getFilename();
+        }
+
+        // -- 3.3 Vues référencées introuvables --
+        $missing = 0;
+        foreach ($referenced as $ref => $source) {
+            if (str_contains($ref, '::')) continue; // composants natifs
+
+            $found = false;
+            foreach ($existingViews as $ev) {
+                if ($ev === $ref || str_ends_with($ev, '.' . $ref)) {
+                    $found = true;
+                    break;
+                }
+            }
+            if (!$found) {
+                $this->addWarning("Vue référencée introuvable : {$ref} (dans {$source})");
+                $missing++;
+            }
+        }
+
+        if ($missing === 0) {
+            $this->addOk(count($existingViews) . ' vues analysées, aucune manquante [OK]');
+        }
+    }
+
+    // ===========================================================
+    // 4. MODELS
+    // ===========================================================
+    private function checkModels(): void
+    {
+        $modelsDir = app_path('Infrastructure/Persistence/Eloquent/Models');
+        if (!File::exists($modelsDir)) {
+            $this->addWarning("Dossier Models introuvable");
+            return;
+        }
+
+        $models = File::allFiles($modelsDir);
+        $noFillable = 0;
+        $noTable = 0;
+
+        foreach ($models as $file) {
+            if ($file->getExtension() !== 'php') continue;
+            if (str_contains($file->getFilename(), '.bak')) continue;
+
+            $content = File::get($file->getPathname());
+            $name = $file->getFilenameWithoutExtension();
+
+            if (!str_contains($content, '$fillable') && !str_contains($content, '$guarded')) {
+                $this->addWarning("{$name} -> ni \$fillable ni \$guarded");
+                $noFillable++;
+            }
+
+            if (preg_match('/\$table\s*=\s*[\'"]([^\'"]+)[\'"]/', $content, $m)) {
+                try {
+                    if (!Schema::hasTable($m[1])) {
+                        $this->addIssue("{$name} -> table '{$m[1]}' n'existe pas !");
+                        $noTable++;
+                    }
+                } catch (\Throwable $e) {
+                    $this->addWarning("Impossible de vérifier '{$m[1]}'");
+                }
+            }
+        }
+
+        if ($noFillable === 0 && $noTable === 0) {
+            $this->addOk(count($models) . ' modèles OK [OK]');
+        }
+    }
+
+    // ===========================================================
+    // 5. FORM REQUESTS
+    // ===========================================================
+    private function checkRequests(): void
+    {
+        $dir = app_path('Http/Requests');
+        if (!File::exists($dir)) return;
+
+        $files = File::allFiles($dir);
+        $problems = 0;
+
+        foreach ($files as $file) {
+            if ($file->getExtension() !== 'php') continue;
+            if (str_contains($file->getFilename(), '.bak')) continue;
+
+            $content = File::get($file->getPathname());
+            $name = $file->getFilenameWithoutExtension();
+
+            if (!preg_match('/public function authorize/', $content)) {
+                $this->addWarning("{$name} -> authorize() manquante");
+                $problems++;
+            }
+            if (!preg_match('/public function rules/', $content)) {
+                $this->addWarning("{$name} -> rules() manquante");
+                $problems++;
+            }
+        }
+
+        if ($problems === 0) {
+            $this->addOk(count($files) . ' Form Requests OK [OK]');
+        }
+    }
+
+    // ===========================================================
+    // 6. MIGRATIONS
+    // ===========================================================
+    private function checkMigrations(): void
+    {
+        try {
+            $executed = DB::table('migrations')->pluck('migration')->toArray();
+            $migrationFiles = File::files(database_path('migrations'));
+            $notRun = [];
+
+            foreach ($migrationFiles as $mf) {
+                $name = pathinfo($mf->getFilename(), PATHINFO_FILENAME);
+                if (!in_array($name, $executed)) {
+                    $notRun[] = $name;
+                }
+            }
+
+            if (empty($notRun)) {
+                $this->addOk(count($executed) . ' migrations exécutées [OK]');
+            } else {
+                foreach ($notRun as $n) {
+                    $this->addWarning("Migration non exécutée : {$n}");
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->addWarning('Impossible de lire les migrations : ' . $e->getMessage());
+        }
+    }
+
+    // ===========================================================
+    // 7. FICHIERS
+    // ===========================================================
+    private function checkFiles(): void
+    {
+        $baks = collect(File::allFiles(app_path()))
+            ->filter(fn($f) => str_contains($f->getFilename(), '.bak'));
+
+        if ($baks->count() > 0) {
+            $this->addWarning($baks->count() . ' fichiers .bak dans app/');
+        } else {
+            $this->addOk('Aucun fichier .bak [OK]');
+        }
+    }
+
+    // ===========================================================
+    // 8. LOGS
+    // ===========================================================
+    private function checkLogs(): void
+    {
+        $logPath = storage_path('logs/laravel.log');
+        if (!File::exists($logPath)) {
+            $this->addOk('Aucun log');
+            return;
+        }
+
+        $lines = explode("\n", File::get($logPath));
+        $recent = array_slice($lines, -500);
+
+        $errorCount = 0;
+        $criticalCount = 0;
+        $lastErrors = [];
+
+        foreach ($recent as $line) {
+            if (str_contains($line, '.CRITICAL')) $criticalCount++;
+            if (str_contains($line, '.ERROR')) {
+                $errorCount++;
+                if (count($lastErrors) < 5) $lastErrors[] = substr($line, 0, 130);
+            }
+        }
+
+        if ($criticalCount > 0) {
+            $this->addIssue("{$criticalCount} erreurs CRITICAL récentes");
+        }
+        if ($errorCount > 0) {
+            $this->addWarning("{$errorCount} erreurs ERROR récentes");
+            foreach ($lastErrors as $err) {
+                $this->line('      -> ' . $err);
+            }
+        } else {
+            $this->addOk('Pas d\'erreurs récentes [OK]');
+        }
+    }
+
+    // ===========================================================
+    // 9. SÉCURITÉ
+    // ===========================================================
+    private function checkSecurity(): void
+    {
+        if (!File::exists(base_path('.env'))) {
+            $this->addIssue('.env manquant !');
+            return;
+        }
+
+        $env = File::get(base_path('.env'));
+
+        if (str_contains($env, 'APP_DEBUG=true') && str_contains($env, 'APP_ENV=production')) {
+            $this->addWarning('APP_DEBUG=true en production !');
+        }
+        if (!preg_match('/APP_KEY=base64:/', $env)) {
+            $this->addWarning('APP_KEY invalide');
+        }
+
+        $this->addOk('Sécurité de base OK [OK]');
+    }
+
+    // ===========================================================
+    // HELPERS
+    // ===========================================================
+    private function addIssue(string $msg): void
+    {
+        $this->issues[] = $msg;
+        $this->line('   <fg=red>[X]</> ' . $msg);
+    }
+
+    private function addWarning(string $msg): void
+    {
+        $this->warnings[] = $msg;
+        $this->line('   <fg=yellow>[!]️ </> ' . $msg);
+    }
+
+    private function addOk(string $msg): void
+    {
+        $this->ok[] = $msg;
+        $this->line('   <fg=green>[OK]</> ' . $msg);
+    }
+
+    // ===========================================================
+    // RAPPORT FINAL
+    // ===========================================================
+    private function printFinalReport(): void
+    {
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|                  [STATS] RAPPORT FINAL                        |');
+        $this->line('+==========================================================+');
+        $this->line('');
+
+        $this->line("   [OK] Points OK      : " . count($this->ok));
+        $this->line("   [!]️  Avertissements : " . count($this->warnings));
+        $this->line("   [X] Erreurs        : " . count($this->issues));
+        $this->line('');
+
+        $total = count($this->ok) + count($this->warnings) + count($this->issues);
+        $score = $total > 0 ? round((count($this->ok) / $total) * 100) : 100;
+        $color = $score >= 80 ? 'green' : ($score >= 50 ? 'yellow' : 'red');
+        $this->line("   <fg={$color}>[TARGET] SCORE : {$score}%</>");
+
+        if (!empty($this->issues)) {
+            $this->line('');
+            $this->line('   [X] ERREURS CRITIQUES :');
+            foreach ($this->issues as $i => $issue) {
+                $this->line('      ' . ($i + 1) . '. ' . $issue);
+            }
+        }
+    }
+
+    private function exportToFile(string $filename): void
+    {
+        $path = storage_path('app/' . $filename);
+        $lines = ["AUDIT - " . now(), ''];
+        $lines[] = 'ERREURS : ' . count($this->issues);
+        foreach ($this->issues as $i) $lines[] = '- ' . $i;
+        $lines[] = '';
+        $lines[] = 'WARNINGS : ' . count($this->warnings);
+        foreach ($this->warnings as $w) $lines[] = '- ' . $w;
+
+        File::put($path, implode("\n", $lines));
+        $this->info("[FILE] Exporté : {$path}");
+    }
+}

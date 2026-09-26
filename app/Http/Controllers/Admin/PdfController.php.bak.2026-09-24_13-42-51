@@ -1,0 +1,202 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Infrastructure\Services\PdfExporterInterface;
+use Infrastructure\Persistence\Eloquent\Models\FormateurModel;
+use Infrastructure\Persistence\Eloquent\Models\EtablissementModel;
+use Infrastructure\Persistence\Eloquent\Models\SessionModel;
+use Infrastructure\Persistence\Eloquent\Models\AffectationModel;
+use Infrastructure\Persistence\Eloquent\Models\FiliereModel;
+
+class PdfController extends Controller
+{
+    public function __construct(
+        private PdfExporterInterface $pdf,
+    ) {}
+
+    /**
+     * Page d'accueil des rapports
+     */
+    public function index()
+    {
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+        $filieres = FiliereModel::orderBy('libelle')->get();
+
+        return view('admin.rapports.index', compact('etablissements', 'filieres'));
+    }
+
+    /**
+     * Liste des formateurs (avec filtres)
+     */
+    public function formateurs(Request $request)
+    {
+        $query = FormateurModel::with('etablissement');
+
+        if ($request->filled('statut')) {
+            $query->where('statut', $request->statut);
+        }
+        if ($request->filled('etablissement_id')) {
+            $query->where('etablissement_id', $request->etablissement_id);
+        }
+
+        $formateurs = $query->orderBy('nom')->get();
+
+        return $this->pdf->generate(
+            'pdf.formateurs.liste',
+            compact('formateurs'),
+            'liste-formateurs-' . now()->format('Y-m-d')
+        );
+    }
+
+    /**
+     * Fiche individuelle d'un formateur
+     */
+    public function formateur(int $id)
+    {
+        $formateur = FormateurModel::with([
+            'etablissement',
+            'filieres',
+            'affectations.filiere',
+            'affectations.etablissement',
+        ])->findOrFail($id);
+
+        return $this->pdf->generate(
+            'pdf.formateurs.fiche',
+            compact('formateur'),
+            'fiche-formateur-' . $formateur->matricule
+        );
+    }
+
+    /**
+     * Liste des formateurs par établissement
+     */
+    public function formateursParEtablissement(Request $request)
+    {
+        $etablissementId = $request->input('etablissement_id');
+
+        $query = EtablissementModel::with(['formateurs' => function ($q) {
+            $q->orderBy('nom')->orderBy('prenom');
+        }]);
+
+        if ($etablissementId) {
+            $query->where('id', $etablissementId);
+        }
+
+        $etablissements = $query->orderBy('nom')->get();
+
+        return $this->pdf->generate(
+            'pdf.formateurs.par-etablissement',
+            compact('etablissements'),
+            'formateurs-par-etablissement-' . now()->format('Y-m-d')
+        );
+    }
+
+    /**
+     * Liste des formateurs par filière
+     * ⚠️ niveau et secteur retirés (suppression UI)
+     */
+    public function formateursParFiliere(Request $request)
+    {
+        $filiereId = $request->input('filiere_id');
+
+        $query = FiliereModel::with([
+            'formateurs' => function ($q) {
+                $q->orderBy('nom')->orderBy('prenom');
+            }
+        ]);
+
+        if ($filiereId) {
+            $query->where('id', $filiereId);
+        }
+
+        $filieres = $query->orderBy('libelle')->get();
+
+        return $this->pdf->generate(
+            'pdf.formateurs.par-filiere',
+            compact('filieres'),
+            'formateurs-par-filiere-' . now()->format('Y-m-d')
+        );
+    }
+
+    /**
+     * Liste des affectations (avec filtres)
+     */
+    public function affectations(Request $request)
+    {
+        $query = AffectationModel::with(['formateur', 'filiere', 'etablissement']);
+
+        if ($request->filled('statut')) {
+            $query->where('statut', $request->statut);
+        }
+        if ($request->filled('etablissement_id')) {
+            $query->where('etablissement_id', $request->etablissement_id);
+        }
+        if ($request->filled('date_debut')) {
+            $query->where('date_debut', '>=', $request->date_debut);
+        }
+        if ($request->filled('date_fin')) {
+            $query->where('date_fin', '<=', $request->date_fin);
+        }
+
+        $affectations = $query->orderBy('date_debut', 'desc')->get();
+
+        return $this->pdf->generate(
+            'pdf.affectations.liste',
+            compact('affectations'),
+            'liste-affectations-' . now()->format('Y-m-d')
+        );
+    }
+
+    /**
+     * Rapport de statistiques globales
+     */
+    public function statistiques()
+    {
+        $stats = [
+            'total_formateurs'      => FormateurModel::count(),
+            'formateurs_actifs'     => FormateurModel::where('statut', 'actif')->count(),
+            'formateurs_inactifs'   => FormateurModel::where('statut', 'inactif')->count(),
+            'total_etablissements'  => EtablissementModel::count(),
+            'total_filieres'        => FiliereModel::count(),
+            'total_sessions'        => SessionModel::count(),
+            'total_affectations'    => AffectationModel::count(),
+            'affectations_actives'  => AffectationModel::where('statut', 'actif')->count(),
+        ];
+
+        $formateursParEtablissement = EtablissementModel::withCount('formateurs')
+            ->orderBy('formateurs_count', 'desc')
+            ->get();
+
+        $formateursParStatut = [
+            'actif'      => FormateurModel::where('statut', 'actif')->count(),
+            'inactif'    => FormateurModel::where('statut', 'inactif')->count(),
+            'en_attente' => FormateurModel::where('statut', 'en_attente')->count(),
+        ];
+
+        $affectationsParStatut = [
+            'actif'    => AffectationModel::where('statut', 'actif')->count(),
+            'termine'  => AffectationModel::where('statut', 'termine')->count(),
+            'suspendu' => AffectationModel::where('statut', 'suspendu')->count(),
+        ];
+
+        $topEtablissements = EtablissementModel::withCount('formateurs')
+            ->orderBy('formateurs_count', 'desc')
+            ->take(10)
+            ->get();
+
+        return $this->pdf->generate(
+            'pdf.statistiques.global',
+            compact(
+                'stats',
+                'formateursParEtablissement',
+                'formateursParStatut',
+                'affectationsParStatut',
+                'topEtablissements'
+            ),
+            'statistiques-globales-' . now()->format('Y-m-d')
+        );
+    }
+}

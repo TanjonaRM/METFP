@@ -1,0 +1,425 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class CreateFormateurLoginFinal extends Command
+{
+    protected $signature = 'create:formateur-login-final';
+    protected $description = 'Crée login formateur identique au design admin';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line('║   🎨 LOGIN FORMATEUR — MÊME DESIGN QUE ADMIN              ║');
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+        $this->line('');
+
+        $path = resource_path('views/auth/formateur/login.blade.php');
+        $dir = dirname($path);
+        if (!File::exists($dir)) {
+            File::makeDirectory($dir, 0755, true);
+        }
+
+        // Backup si existe
+        if (File::exists($path)) {
+            File::copy($path, $path . '.bak.' . date('Y-m-d_His'));
+            $this->line('💾 Backup créé');
+        }
+
+        File::put($path, $this->getView());
+        $this->info('✅ auth/formateur/login.blade.php créé');
+
+        // Vérifier le LoginController
+        $ctrlPath = app_path('Http/Controllers/Auth/Formateur/LoginController.php');
+        if (File::exists($ctrlPath)) {
+            File::copy($ctrlPath, $ctrlPath . '.bak.' . date('Y-m-d_His'));
+            $content = File::get($ctrlPath);
+
+            // Corriger la vue pointée
+            $content = str_replace(
+                "view('formateur.auth.login')",
+                "view('auth.formateur.login')",
+                $content
+            );
+
+            File::put($ctrlPath, $content);
+            $this->info('✅ LoginController → auth.formateur.login');
+
+            $output = [];
+            $rc = 0;
+            exec('php -l "' . $ctrlPath . '" 2>&1', $output, $rc);
+            if ($rc === 0) {
+                $this->info('   ✅ Syntaxe valide');
+            }
+        }
+
+        // Nettoyer les anciens fichiers (formateur/auth/)
+        $badDir = resource_path('views/formateur/auth');
+        if (File::exists($badDir)) {
+            foreach (File::files($badDir) as $f) {
+                File::delete($f->getPathname());
+                $this->line('   🗑️  Supprimé : ' . $f->getFilename());
+            }
+            File::deleteDirectory($badDir);
+        }
+
+        // Vider caches
+        $this->call('view:clear');
+        $this->call('optimize:clear');
+        $this->info('✅ Caches vidés');
+
+        $this->line('');
+        $this->info('🎉 TERMINÉ !');
+        $this->line('👉 Testez : http://localhost:8000/formateur/login (Ctrl+F5)');
+
+        return self::SUCCESS;
+    }
+
+    private function getView(): string
+    {
+        return <<<'BLADE'
+@extends('layouts.guest')
+
+@section('title', 'Connexion Formateur')
+
+@section('content')
+
+<div class="flex" style="min-height: 100vh; height: 100vh;">
+
+    {{-- ═══════════════════════════════════════════════════════════ --}}
+    {{-- PARTIE GAUCHE — Branding + Image                          --}}
+    {{-- ═══════════════════════════════════════════════════════════ --}}
+    <div class="hidden lg:block relative overflow-hidden flex-shrink-0"
+         style="width: 55%; height: 100vh; min-height: 100vh; position: relative;">
+
+        <img src="https://images.unsplash.com/photo-1524178232363-1fb2b075b655?auto=format&fit=crop&w=1600&q=80"
+             alt="Formation"
+             style="position: absolute; top: 0; left: 0;
+                    width: 100%; height: 100%;
+                    object-fit: cover; object-position: center;">
+
+        <div style="position: absolute; inset: 0;
+                    background: linear-gradient(135deg,
+                        rgba(6, 78, 59, 0.92) 0%,
+                        rgba(4, 120, 87, 0.85) 50%,
+                        rgba(24, 24, 27, 0.92) 100%);"></div>
+
+        <div style="position: absolute; inset: 0; opacity: 0.08;
+                    background-image:
+                        linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px);
+                    background-size: 60px 60px;"></div>
+
+        <div class="relative z-10 flex flex-col justify-between text-white"
+             style="height: 100vh; padding: 3rem; position: relative;">
+
+            <div class="flex items-center gap-2"
+                 style="font-size: 11px; font-weight: 700;
+                        letter-spacing: 0.14em; text-transform: uppercase;
+                        color: #a7f3d0;">
+                <span style="width: 24px; height: 1px; background: #6ee7b7;"></span>
+                METFP · Madagascar
+            </div>
+
+            <div>
+                <div style="width: 48px; height: 2px; background: #6ee7b7;
+                            border-radius: 2px; margin-bottom: 2rem;"></div>
+
+                <p class="font-display"
+                   style="font-size: 2.25rem; font-weight: 700;
+                          line-height: 1.15; letter-spacing: -0.02em;
+                          max-width: 32rem; color: white;">
+                    Espace formateur,
+                    <span style="color: #6ee7b7;">personnalisé.</span>
+                </p>
+
+                <p style="font-size: 15px; color: rgba(209, 250, 229, 0.85);
+                          margin-top: 1.5rem; max-width: 28rem;
+                          line-height: 1.6;">
+                    Consultez vos affectations, sessions et gérez votre profil personnel.
+                </p>
+            </div>
+
+            <div class="flex items-center"
+                 style="gap: 1.5rem; padding-top: 1.5rem;
+                        border-top: 1px solid rgba(255,255,255,0.15);">
+                <div>
+                    <div class="font-display"
+                         style="font-size: 1.5rem; font-weight: 700; color: white;">
+                        14+
+                    </div>
+                    <div style="font-size: 10px; color: #a7f3d0;
+                                text-transform: uppercase; letter-spacing: 0.1em;
+                                margin-top: 0.25rem;">
+                        Établissements
+                    </div>
+                </div>
+                <div style="width: 1px; height: 32px; background: rgba(255,255,255,0.2);"></div>
+                <div>
+                    <div class="font-display"
+                         style="font-size: 1.5rem; font-weight: 700; color: white;">
+                        80+
+                    </div>
+                    <div style="font-size: 10px; color: #a7f3d0;
+                                text-transform: uppercase; letter-spacing: 0.1em;
+                                margin-top: 0.25rem;">
+                        Filières
+                    </div>
+                </div>
+                <div style="width: 1px; height: 32px; background: rgba(255,255,255,0.2);"></div>
+                <div>
+                    <div class="font-display"
+                         style="font-size: 1.5rem; font-weight: 700; color: white;">
+                        5
+                    </div>
+                    <div style="font-size: 10px; color: #a7f3d0;
+                                text-transform: uppercase; letter-spacing: 0.1em;
+                                margin-top: 0.25rem;">
+                        Niveaux
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- ═══════════════════════════════════════════════════════════ --}}
+    {{-- PARTIE DROITE — Formulaire                                --}}
+    {{-- ═══════════════════════════════════════════════════════════ --}}
+    <div class="flex-1 flex flex-col overflow-y-auto" style="min-height: 100vh;">
+
+        <div style="height: 3px; background: #059669;"></div>
+
+        <header style="border-bottom: 1px solid #e4e4e7;">
+            <div class="flex items-center justify-between"
+                 style="padding: 0 2.5rem; height: 64px;">
+
+                <a href="{{ route('home') }}" class="flex items-center" style="gap: 10px;">
+                    <div class="flex items-center justify-center"
+                         style="width: 32px; height: 32px;
+                                background: #18181b; border-radius: 8px;">
+                        <span class="material-symbols-rounded"
+                              style="color: white; font-size: 18px;
+                                     font-variation-settings: 'FILL' 1;">
+                            school
+                        </span>
+                    </div>
+                    <span style="font-weight: 700; color: #18181b;
+                                 font-size: 15px; letter-spacing: -0.02em;">
+                        SGFORMATEURS
+                    </span>
+                </a>
+
+                <a href="{{ route('home') }}"
+                   class="inline-flex items-center"
+                   style="gap: 6px; font-size: 12px;
+                          font-weight: 600; color: #71717a;">
+                    <span class="material-symbols-rounded" style="font-size: 16px;">
+                        arrow_back
+                    </span>
+                    Retour
+                </a>
+            </div>
+        </header>
+
+        <div class="flex-1 flex items-center justify-center"
+             style="padding: 2.5rem 2rem;">
+
+            <div class="w-full" style="max-width: 26rem;">
+
+                <div class="label-caps">Espace formateur</div>
+                <div class="rule-emerald" style="margin-top: 12px; margin-bottom: 20px;"></div>
+
+                <h1 class="font-display"
+                    style="font-size: 2.25rem; font-weight: 700;
+                           color: #18181b; line-height: 1.05;
+                           letter-spacing: -0.02em;">
+                    Connexion.
+                </h1>
+
+                <p style="font-size: 14px; color: #71717a;
+                          margin-top: 1rem; line-height: 1.6;">
+                    Accédez à votre espace personnel pour consulter vos affectations, sessions et gérer votre profil.
+                </p>
+
+                @if ($errors->any())
+                    <div class="flex items-start"
+                         style="margin-top: 2rem; gap: 12px;
+                                padding: 1rem; border-radius: 12px;
+                                background: #fef2f2;
+                                border: 1px solid #fecaca;">
+                        <span class="material-symbols-rounded"
+                              style="color: #dc2626; font-size: 20px; flex-shrink: 0;">
+                            error
+                        </span>
+                        <div style="font-size: 13px; color: #991b1b;
+                                    line-height: 1.6;">
+                            @foreach ($errors->all() as $error)
+                                <div>{{ $error }}</div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                @if (session('status'))
+                    <div class="flex items-start"
+                         style="margin-top: 2rem; gap: 12px;
+                                padding: 1rem; border-radius: 12px;
+                                background: #ecfdf5;
+                                border: 1px solid #a7f3d0;">
+                        <span class="material-symbols-rounded"
+                              style="color: #059669; font-size: 20px; flex-shrink: 0;">
+                            check_circle
+                        </span>
+                        <div style="font-size: 13px; color: #065f46;
+                                    line-height: 1.6;">
+                            {{ session('status') }}
+                        </div>
+                    </div>
+                @endif
+
+                @if (session('success'))
+                    <div class="flex items-start"
+                         style="margin-top: 2rem; gap: 12px;
+                                padding: 1rem; border-radius: 12px;
+                                background: #ecfdf5;
+                                border: 1px solid #a7f3d0;">
+                        <span class="material-symbols-rounded"
+                              style="color: #059669; font-size: 20px; flex-shrink: 0;">
+                            check_circle
+                        </span>
+                        <div style="font-size: 13px; color: #065f46;
+                                    line-height: 1.6;">
+                            {{ session('success') }}
+                        </div>
+                    </div>
+                @endif
+
+                <form action="{{ route('formateur.login') }}" method="POST"
+                      style="margin-top: 2rem; display: flex;
+                             flex-direction: column; gap: 1.25rem;">
+                    @csrf
+
+                    <div>
+                        <label for="email" class="label-caps"
+                               style="display: block; margin-bottom: 8px;">
+                            Email
+                        </label>
+                        <input type="email" name="email" id="email"
+                               value="{{ old('email') }}"
+                               placeholder="votre.email@sgformateurs.mg"
+                               required autofocus autocomplete="email"
+                               class="input-editorial">
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between"
+                             style="margin-bottom: 8px;">
+                            <label for="password" class="label-caps">
+                                Mot de passe
+                            </label>
+                            @if(Route::has('formateur.password.request'))
+                                <a href="{{ route('formateur.password.request') }}"
+                                   style="font-size: 11px; font-weight: 600;
+                                          color: #71717a;">
+                                    Oublié ?
+                                </a>
+                            @endif
+                        </div>
+                        <div style="position: relative;">
+                            <input type="password" name="password" id="password"
+                                   placeholder="••••••••"
+                                   required autocomplete="current-password"
+                                   class="input-editorial"
+                                   style="padding-right: 3rem;">
+                            <button type="button" onclick="togglePassword()"
+                                    style="position: absolute; right: 14px;
+                                           top: 50%; transform: translateY(-50%);
+                                           color: #a1a1aa; padding: 4px;
+                                           background: transparent; border: none;
+                                           cursor: pointer;">
+                                <span class="material-symbols-rounded"
+                                      style="font-size: 20px;" id="toggleIcon">
+                                    visibility
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="padding-top: 4px;">
+                        <label class="inline-flex items-center"
+                               style="gap: 10px; cursor: pointer;">
+                            <input type="checkbox" name="remember"
+                                   style="width: 16px; height: 16px;
+                                          border-radius: 4px;
+                                          accent-color: #059669;">
+                            <span style="font-size: 13px; color: #52525b;">
+                                Se souvenir de moi
+                            </span>
+                        </label>
+                    </div>
+
+                    <button type="submit"
+                            class="w-full inline-flex items-center justify-center"
+                            style="gap: 8px; padding: 14px 24px;
+                                   border-radius: 12px;
+                                   background: #059669; color: white;
+                                   font-size: 14px; font-weight: 600;
+                                   border: none; cursor: pointer;
+                                   margin-top: 8px;
+                                   transition: all 0.2s ease;">
+                        Se connecter
+                        <span class="material-symbols-rounded"
+                              style="font-size: 18px;">
+                            arrow_forward
+                        </span>
+                    </button>
+                </form>
+
+                <div class="flex items-center justify-between"
+                     style="margin-top: 2rem; padding-top: 1.5rem;
+                            border-top: 1px solid #e4e4e7;">
+                    <p style="font-size: 12px; color: #71717a;">
+                        Pas de compte ?
+                        <a href="{{ route('formateur.register') }}"
+                           style="font-weight: 600; color: #059669;">
+                            S'inscrire
+                        </a>
+                    </p>
+                    <a href="{{ route('admin.login') }}"
+                       class="inline-flex items-center"
+                       style="gap: 4px; font-size: 12px;
+                              font-weight: 600; color: #71717a;">
+                        Espace admin
+                        <span class="material-symbols-rounded"
+                              style="font-size: 14px;">
+                            arrow_outward
+                        </span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function togglePassword() {
+        const input = document.getElementById('password');
+        const icon = document.getElementById('toggleIcon');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.textContent = 'visibility_off';
+        } else {
+            input.type = 'password';
+            icon.textContent = 'visibility';
+        }
+    }
+</script>
+
+@endsection
+BLADE;
+    }
+}

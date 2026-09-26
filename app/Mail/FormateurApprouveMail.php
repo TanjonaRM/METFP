@@ -1,0 +1,23 @@
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+
+class FormateurApprouveMail extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    public function __construct(
+        public $formateur,
+        public ?string $messageAdmin = null
+    ) {}
+
+    public function build()
+    {
+        return $this->subject('[OK] Votre inscription a été approuvée - SG Formateurs')
+                    ->view('emails.formateur-approuve');
+    }
+}

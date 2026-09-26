@@ -1,0 +1,155 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Services\HistoriqueService;
+use App\Services\NotificationService;
+use Illuminate\Http\Request;
+use Infrastructure\Persistence\Eloquent\Models\AffectationModel;
+use Infrastructure\Persistence\Eloquent\Models\DemandeAffectationModel;
+use Infrastructure\Persistence\Eloquent\Models\FormateurModel;
+use Infrastructure\Persistence\Eloquent\Models\SessionModel;
+
+class DemandeAffectationAdminController extends Controller
+{
+    public function index(Request $request)
+    {
+        $query = DemandeAffectationModel::with(['formateur', 'filiere', 'etablissement'])
+            ->latest();
+
+        if ($request->filled('statut')) {
+            $query->where('statut', $request->statut);
+        }
+
+        $demandes = $query->paginate(20)->withQueryString();
+
+        $stats = [
+            'total'      => DemandeAffectationModel::count(),
+            'en_attente' => DemandeAffectationModel::where('statut', 'en_attente')->count(),
+            'approuvees' => DemandeAffectationModel::where('statut', 'approuvee')->count(),
+            'refusees'   => DemandeAffectationModel::where('statut', 'refusee')->count(),
+        ];
+
+        return view('admin.demandes.affectations.index', compact('demandes', 'stats'));
+    }
+
+    /**
+     * Approuver une demande
+     * -> Crée automatiquement une Affectation + une Session
+     * -> Redirige vers /admin/affectations
+     */
+    public function approuver(Request $request, int $id)
+    {
+        $demande = DemandeAffectationModel::findOrFail($id);
+
+        // Récupérer le formateur
+        $formateur = FormateurModel::find($demande->formateur_id);
+
+        if (!$formateur) {
+            return back()->with('error', 'Formateur introuvable');
+        }
+
+        // Récupérer les valeurs AVANT
+        $etablissementAvant = $formateur->etablissement?->nom;
+        $filiereAvant       = $formateur->filiere?->libelle;
+
+        // Mettre à jour la demande
+        $demande->update([
+            'statut'        => DemandeAffectationModel::STATUT_APPROUVEE,
+            'reponse_admin' => $request->input('reponse_admin', 'Approuvée.'),
+            'traitee_le'    => now(),
+        ]);
+
+        // ============================================================
+        // Créer l'affectation
+        // ============================================================
+        $affectation = AffectationModel::create([
+            'formateur_id'     => $demande->formateur_id,
+            'filiere_id'       => $demande->filiere_id,
+            'etablissement_id' => $demande->etablissement_id,
+            'date_debut'       => now()->toDateString(),
+            'date_fin'         => now()->addMonths(6)->toDateString(),
+            'statut'           => 'actif',
+        ]);
+
+        // ============================================================
+        // Mettre à jour le formateur
+        // ============================================================
+        $formateur->update([
+            'etablissement_id' => $demande->etablissement_id,
+            'filiere_id'       => $demande->filiere_id,
+        ]);
+
+        // ============================================================
+        // Créer la session
+        // ============================================================
+        $session = SessionModel::create([
+            'code'             => SessionModel::generateNextCode(),
+            'titre'            => 'Session ' . ($demande->filiere?->libelle ?? 'Affectation'),
+            'filiere_id'       => $demande->filiere_id,
+            'formateur_id'     => $demande->formateur_id,
+            'etablissement_id' => $demande->etablissement_id,
+            'date_debut'       => now()->toDateString(),
+            'date_fin'         => now()->addMonths(6)->toDateString(),
+            'nb_places'        => 0,
+            'statut'           => 'actif',
+        ]);
+
+        // ============================================================
+        // [AJAX] HISTORIQUE
+        // ============================================================
+        HistoriqueService::affectation(
+            formateurId:          $demande->formateur_id,
+            etablissementAvant:   $etablissementAvant,
+            etablissementApres:   $demande->etablissement?->nom,
+            filiereAvant:         $filiereAvant,
+            filiereApres:         $demande->filiere?->libelle,
+            affectationId:        $affectation->id,
+            source:               'admin'
+        );
+
+        HistoriqueService::session(
+            formateurId:    $demande->formateur_id,
+            codeSession:    $session->code,
+            titre:          $session->titre,
+            filiere:        $demande->filiere?->libelle,
+            etablissement:  $demande->etablissement?->nom,
+            sessionId:      $session->id,
+            source:         'admin'
+        );
+
+        // ============================================================
+        // [AJAX] NOTIFICATION FORMATEUR
+        // ============================================================
+        NotificationService::demandeAffectationTraitee($demande);
+
+        // ============================================================
+        // [AJAX] REDIRECTION vers /admin/affectations
+        // ============================================================
+        return redirect()
+            ->route('admin.affectations.index')
+            ->with('success', 'Demande approuvée. Affectation et session créées. Formateur notifié.');
+    }
+
+    /**
+     * Refuser une demande
+     * -> Redirige vers /admin/demandes-affectations
+     */
+    public function refuser(Request $request, int $id)
+    {
+        $demande = DemandeAffectationModel::findOrFail($id);
+
+        $demande->update([
+            'statut'        => DemandeAffectationModel::STATUT_REFUSEE,
+            'reponse_admin' => $request->input('reponse_admin', 'Refusée.'),
+            'traitee_le'    => now(),
+        ]);
+
+        NotificationService::demandeAffectationTraitee($demande);
+
+        return redirect()
+            ->route('admin.demandes-affectations.index')
+            ->with('success', 'Demande refusée. Formateur notifié.');
+    }
+}

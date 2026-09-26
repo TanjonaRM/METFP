@@ -1,0 +1,379 @@
+@extends('layouts.formateur')
+@section('title', 'Mes sessions')
+
+@section('content')
+
+{{-- Header + Bouton --}}
+<div class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div>
+        <h1 class="font-display text-2xl font-bold text-slate-900">Mes sessions</h1>
+        <p class="text-sm text-slate-500 mt-1">
+            Sessions actives et historique des demandes
+        </p>
+    </div>
+
+    <button type="button"
+            onclick="openSessionModal()"
+            style="background-color: #059669 !important; color: #ffffff !important;"
+            class="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl
+                   text-[14px] font-semibold shadow-md hover:shadow-lg
+                   hover:-translate-y-0.5 transition-all border-0 cursor-pointer">
+        <span class="material-symbols-rounded text-[20px]"
+              style="color: #ffffff !important; font-variation-settings: 'FILL' 1;">
+            add_circle
+        </span>
+        <span style="color: #ffffff !important;">Nouvelle demande de session</span>
+    </button>
+</div>
+
+{{-- Messages --}}
+@if(session('success'))
+    <div class="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+        <span class="material-symbols-rounded">check_circle</span>
+        <div>{{ session('success') }}</div>
+    </div>
+@endif
+
+@if(session('warning'))
+    <div class="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+        <span class="material-symbols-rounded">warning</span>
+        <div>{{ session('warning') }}</div>
+    </div>
+@endif
+
+@if($errors->any())
+    <div class="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-red-50 border border-red-200 text-red-800 text-sm">
+        <span class="material-symbols-rounded">error</span>
+        <div>
+            @foreach($errors->all() as $error)
+                <div>{{ $error }}</div>
+            @endforeach
+        </div>
+    </div>
+@endif
+
+{{-- Stats --}}
+@php
+    $totalDemandes = $demandes->count() ?? 0;
+    $enAttente = $demandes->where('statut', 'en_attente')->count() ?? 0;
+    $approuvees = $demandes->where('statut', 'approuvee')->count() ?? 0;
+    $refusees = $demandes->where('statut', 'refusee')->count() ?? 0;
+@endphp
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Demandes</div>
+        <div class="text-2xl font-bold text-slate-900 mt-1">{{ $totalDemandes }}</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-amber-500">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">En attente</div>
+        <div class="text-2xl font-bold text-amber-600 mt-1">{{ $enAttente }}</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-emerald-500">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Approuvées</div>
+        <div class="text-2xl font-bold text-emerald-600 mt-1">{{ $approuvees }}</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-red-500">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Refusées</div>
+        <div class="text-2xl font-bold text-red-600 mt-1">{{ $refusees }}</div>
+    </div>
+</div>
+
+{{-- ============================================================
+     HISTORIQUE DES DEMANDES
+     ============================================================ --}}
+<div class="bg-white rounded-xl border border-slate-200 overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-slate-200 flex justify-between items-center">
+        <div>
+            <h2 class="font-display font-bold text-slate-900">Historique de mes demandes</h2>
+            <p class="text-xs text-slate-500 mt-0.5">
+                Suivez l'état de vos demandes de session
+            </p>
+        </div>
+        <span class="text-xs font-bold text-slate-500">{{ $totalDemandes }} demande(s)</span>
+    </div>
+
+    @if($totalDemandes > 0)
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Titre</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Période</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Réponse admin</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($demandes->sortByDesc('created_at') as $demande)
+                    <tr class="border-b border-slate-100 hover:bg-slate-50 transition">
+                        <td class="px-5 py-4 font-semibold text-slate-900">
+                            {{ $demande->titre }}
+                        </td>
+                        <td class="px-5 py-4 text-xs text-slate-600">
+                            {{ $demande->date_debut_souhaitee?->format('d/m/Y') ?? '-' }}
+                            -> {{ $demande->date_fin_souhaitee?->format('d/m/Y') ?? '-' }}
+                        </td>
+                        <td class="px-5 py-4">
+                            @if($demande->statut === 'en_attente')
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-amber-50 text-amber-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                    En attente
+                                </span>
+                            @elseif($demande->statut === 'approuvee')
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    Approuvée
+                                </span>
+                            @else
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-red-50 text-red-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                                    Refusée
+                                </span>
+                            @endif
+                        </td>
+                        <td class="px-5 py-4 text-xs text-slate-600 max-w-xs">
+                            @if($demande->reponse_admin)
+                                <span class="italic">"{{ Str::limit($demande->reponse_admin, 60) }}"</span>
+                            @else
+                                <span class="text-slate-400">En attente de réponse...</span>
+                            @endif
+                        </td>
+                        <td class="px-5 py-4 text-xs text-slate-500">
+                            {{ $demande->created_at?->format('d/m/Y H:i') }}
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    @else
+        <div class="p-12 text-center">
+            <span class="material-symbols-rounded text-5xl text-slate-300 block mb-3">event_busy</span>
+            <p class="text-slate-500 font-semibold">Aucune demande pour le moment</p>
+            <p class="text-sm text-slate-400 mt-1">
+                Cliquez sur "Nouvelle demande de session" pour commencer.
+            </p>
+        </div>
+    @endif
+</div>
+
+{{-- ============================================================
+     SESSIONS ACTIVES
+     ============================================================ --}}
+<div class="mb-4">
+    <h2 class="font-display text-lg font-bold text-slate-900">Mes sessions actives</h2>
+    <p class="text-xs text-slate-500 mt-0.5">Sessions approuvées par l'administration</p>
+</div>
+
+@if($sessions->count() > 0)
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        @foreach($sessions as $session)
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm
+                    hover:shadow-lg transition-all group">
+
+            <div class="p-6">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="w-12 h-12 rounded-xl
+                                bg-gradient-to-br from-emerald-50 to-emerald-100
+                                flex items-center justify-center text-emerald-600">
+                        <span class="material-symbols-rounded text-2xl"
+                              style="font-variation-settings: 'FILL' 1;">event</span>
+                    </div>
+
+                    @if($session->estEnCours())
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1
+                                     rounded-full text-[11px] font-semibold
+                                     bg-emerald-50 text-emerald-700">En cours</span>
+                    @elseif($session->estTerminee())
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1
+                                     rounded-full text-[11px] font-semibold
+                                     bg-slate-100 text-slate-600">Terminée</span>
+                    @else
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1
+                                     rounded-full text-[11px] font-semibold
+                                     bg-green-50 text-green-700">À venir</span>
+                    @endif
+                </div>
+
+                <h3 class="font-display font-bold text-lg text-slate-900 font-mono">
+                    {{ $session->code }}
+                </h3>
+                <p class="text-sm text-slate-500 mt-1">
+                    {{ $session->filiere->libelle ?? '-' }}
+                </p>
+                <p class="text-xs text-slate-400 mt-1">
+                    {{ $session->etablissement->nom ?? '-' }}
+                </p>
+            </div>
+
+            <div class="px-6 py-4 border-t border-slate-100
+                        flex items-center justify-between">
+                <div class="flex items-center gap-1.5 text-xs text-slate-500">
+                    <span class="material-symbols-rounded text-sm">calendar_today</span>
+                    {{ $session->date_debut?->format('d/m/Y') ?? '-' }}
+                </div>
+
+                <a href="{{ route('formateur.sessions.show', $session->id) }}"
+                   class="text-emerald-700 hover:text-emerald-500 font-semibold text-sm">
+                    Détails ->
+                </a>
+            </div>
+        </div>
+        @endforeach
+    </div>
+@else
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 text-center">
+        <span class="material-symbols-rounded text-5xl text-slate-300 block mb-3">event</span>
+        <p class="text-slate-500 font-semibold">Aucune session active</p>
+        <p class="text-sm text-slate-400 mt-1">
+            Vos sessions apparaîtront ici après approbation de vos demandes.
+        </p>
+    </div>
+@endif
+
+{{-- ============================================================
+     MODAL : NOUVELLE DEMANDE
+     ============================================================ --}}
+<div id="sessionModal"
+     class="fixed inset-0 z-[9999] items-center justify-center p-4"
+     style="display:none;"
+     onclick="if(event.target === this) closeSessionModal()">
+
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl
+                flex flex-col overflow-hidden" style="max-height: 90vh;">
+
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm"
+                     style="background-color: #059669;">
+                    <span class="material-symbols-rounded text-white text-xl"
+                          style="font-variation-settings: 'FILL' 1; color: #ffffff;">event</span>
+                </div>
+                <div>
+                    <h2 class="font-display text-lg font-bold text-slate-900">
+                        Nouvelle demande de session
+                    </h2>
+                    <p class="text-xs text-slate-500">Remplissez le formulaire ci-dessous</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeSessionModal()"
+                    class="w-9 h-9 rounded-lg flex items-center justify-center
+                           text-slate-400 hover:bg-slate-100 transition">
+                <span class="material-symbols-rounded text-[20px]">close</span>
+            </button>
+        </div>
+
+        <form action="{{ route('formateur.demandes-sessions.store') }}"
+              method="POST" class="flex flex-col flex-1 min-h-0">
+            @csrf
+
+            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        Titre de la session <span class="text-red-500">*</span>
+                    </label>
+                    <input type="text" name="titre" required
+                           placeholder="Ex: Session de formation continue"
+                           class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-xl
+                                  focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Filière</label>
+                        <select name="filiere_id"
+                                class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-xl
+                                       focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                            <option value="">- Aucune -</option>
+                            @foreach($filieres ?? [] as $f)
+                                <option value="{{ $f->id }}">{{ $f->libelle }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Établissement</label>
+                        <select name="etablissement_id"
+                                class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-xl
+                                       focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                            <option value="">- Aucun -</option>
+                            @foreach($etablissements ?? [] as $e)
+                                <option value="{{ $e->id }}">{{ $e->nom }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Date début souhaitée</label>
+                        <input type="date" name="date_debut_souhaitee" min="{{ date('Y-m-d') }}"
+                               class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-xl
+                                      focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-slate-700 mb-2">Date fin souhaitée</label>
+                        <input type="date" name="date_fin_souhaitee"
+                               class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-xl
+                                      focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        Motif <span class="text-red-500">*</span>
+                    </label>
+                    <textarea name="motif" rows="4" required minlength="10"
+                              placeholder="Expliquez brièvement la raison (min 10 caractères)..."
+                              class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-xl
+                                     focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100
+                                     resize-none"></textarea>
+                    <p class="text-[11px] text-slate-400 mt-1.5">
+                        ⓘ Votre demande sera envoyée à l'administration pour approbation.
+                    </p>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2 bg-slate-50 rounded-b-2xl shrink-0">
+                <button type="button" onclick="closeSessionModal()"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                               bg-slate-100 text-slate-700 text-sm font-semibold
+                               hover:bg-slate-200 transition">
+                    Annuler
+                </button>
+                <button type="submit"
+                        style="background-color: #059669 !important; color: #ffffff !important;"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                               text-sm font-semibold shadow-md hover:shadow-lg transition">
+                    <span class="material-symbols-rounded text-[18px]"
+                          style="color: #ffffff !important;">send</span>
+                    <span style="color: #ffffff !important;">Envoyer la demande</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function openSessionModal() {
+        document.getElementById('sessionModal').style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+    function closeSessionModal() {
+        document.getElementById('sessionModal').style.display = 'none';
+        document.body.style.overflow = '';
+    }
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeSessionModal();
+    });
+</script>
+
+@endsection

@@ -1,0 +1,75 @@
+@extends('pdf.layouts.base')
+
+@section('title', 'Fiche Formateur')
+@section('doc-title', 'FICHE FORMATEUR')
+@section('doc-subtitle', $formateur->matricule . ' — ' . $formateur->prenom . ' ' . $formateur->nom)
+
+@section('content')
+
+<div class="info-box">
+    <h3>Informations personnelles</h3>
+    <table>
+        <tr>
+            <td style="width: 30%;"><strong>Matricule :</strong></td>
+            <td>{{ $formateur->matricule ?? '-' }}</td>
+        </tr>
+        <tr>
+            <td><strong>Nom complet :</strong></td>
+            <td>{{ $formateur->prenom ?? '' }} {{ $formateur->nom ?? '' }}</td>
+        </tr>
+        <tr>
+            <td><strong>Email :</strong></td>
+            <td>{{ $formateur->email ?? '-' }}</td>
+        </tr>
+        <tr>
+            <td><strong>Téléphone :</strong></td>
+            <td>{{ $formateur->telephone ?? '-' }}</td>
+        </tr>
+        <tr>
+            <td><strong>Statut :</strong></td>
+            <td>
+                <span class="badge badge-{{ $formateur->statut ?? 'actif' }}">
+                    {{ ucfirst($formateur->statut ?? 'actif') }}
+                </span>
+            </td>
+        </tr>
+        <tr>
+            <td><strong>Établissement :</strong></td>
+            <td>{{ $formateur->etablissement->nom ?? '-' }}</td>
+        </tr>
+    </table>
+</div>
+
+@if($formateur->affectations && $formateur->affectations->count())
+<div class="info-box">
+    <h3>Affectations ({{ $formateur->affectations->count() }})</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Filière</th>
+                <th>Établissement</th>
+                <th>Début</th>
+                <th>Fin</th>
+                <th>Statut</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($formateur->affectations as $a)
+                <tr>
+                    <td>{{ $a->filiere->libelle ?? '-' }}</td>
+                    <td>{{ $a->etablissement->nom ?? '-' }}</td>
+                    <td>{{ $a->date_debut?->format('d/m/Y') ?? '-' }}</td>
+                    <td>{{ $a->date_fin?->format('d/m/Y') ?? 'En cours' }}</td>
+                    <td>
+                        <span class="badge badge-{{ $a->statut ?? 'actif' }}">
+                            {{ ucfirst($a->statut ?? 'actif') }}
+                        </span>
+                    </td>
+                </tr>
+            @endforeach
+        </tbody>
+    </table>
+</div>
+@endif
+
+@endsection

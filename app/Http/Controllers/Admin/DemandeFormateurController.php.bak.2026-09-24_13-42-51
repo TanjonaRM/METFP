@@ -1,0 +1,68 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Mail\FormateurApprouveMail;
+use App\Mail\FormateurRefuseMail;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use Infrastructure\Persistence\Eloquent\Models\FormateurUserModel;
+
+class DemandeFormateurController extends Controller
+{
+    public function index()
+    {
+        $demandes = FormateurUserModel::where('statut', 'en_attente')
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
+
+        return view('admin.demandes-formateurs.index', compact('demandes'));
+    }
+
+    public function approuver(Request $request, int $id)
+    {
+        $formateur = FormateurUserModel::findOrFail($id);
+
+        if ($formateur->statut !== 'en_attente') {
+            return back()->with('error', 'Ce formateur a déjà été traité.');
+        }
+
+        $formateur->update([
+            'statut'     => 'actif',
+            'valide_le'  => now(),
+            'valide_par' => auth('admin')->id(),
+        ]);
+
+        // Email
+        try {
+            Mail::to($formateur->email)->send(new FormateurApprouveMail($formateur, $request->message));
+        } catch (\Throwable $e) {
+            \Log::warning('Email échoué : ' . $e->getMessage());
+        }
+
+        return back()->with('success', "✅ Formateur {$formateur->prenom} {$formateur->nom} approuvé.");
+    }
+
+    public function refuser(Request $request, int $id)
+    {
+        $request->validate(['motif' => 'required|string|max:500']);
+
+        $formateur = FormateurUserModel::findOrFail($id);
+
+        $formateur->update([
+            'statut'      => 'refuse',
+            'motif_refus' => $request->motif,
+            'valide_le'   => now(),
+            'valide_par'  => auth('admin')->id(),
+        ]);
+
+        try {
+            Mail::to($formateur->email)->send(new FormateurRefuseMail($formateur, $request->motif));
+        } catch (\Throwable $e) {
+            \Log::warning('Email échoué : ' . $e->getMessage());
+        }
+
+        return back()->with('success', "❌ Formateur {$formateur->prenom} {$formateur->nom} refusé.");
+    }
+}

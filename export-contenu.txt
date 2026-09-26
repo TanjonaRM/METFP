@@ -1,0 +1,136 @@
+﻿$output = "export-contenu.txt"
+Remove-Item $output -ErrorAction SilentlyContinue
+
+$fichiers = Get-ChildItem ".\export-lot04-final\" | Sort-Object Name
+
+Write-Host "=== EXPORT EN COURS ===" -ForegroundColor Cyan
+
+foreach ($f in $fichiers) {
+    Add-Content $output "`n`n=========================================" -Encoding UTF8
+    Add-Content $output "FICHIER: $($f.Name)" -Encoding UTF8
+    Add-Content $output "=========================================`n" -Encoding UTF8
+    Get-Content $f.FullName | Add-Content $output -Encoding UTF8
+    Write-Host "OK  $($f.Name)" -ForegroundColor Green
+}
+
+Write-Host "`n=== EXPORT TERMINE ===" -ForegroundColor Cyan
+Write-Host "Fichier cree : $output" -ForegroundColor Yellow
+
+Start-Sleep -Seconds 1
+notepad $output
+
+
+
+# ========== 1. StoreFormateurRequest ==========
+$content1 = @'
+<?php
+
+namespace App\Http\Requests\Formateur;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class StoreFormateurRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return auth('admin')->check();
+    }
+
+    public function rules(): array
+    {
+        return [
+            'matricule'        => ['required', 'string', 'max:50', 'unique:formateurs,matricule', 'regex:/^FORM-\d{3,}$/'],
+            'nom'              => ['required', 'string', 'max:100'],
+            'prenom'           => ['required', 'string', 'max:100'],
+            'email'            => ['required', 'email', 'max:255', 'unique:formateurs,email'],
+            'telephone'        => ['nullable', 'string', 'max:20'],
+            'sexe'             => ['nullable', 'in:Masculin,Feminin'],
+            'date_naissance'   => ['nullable', 'date'],
+            'lieu_naissance'   => ['nullable', 'string', 'max:150'],
+            'cin'              => ['nullable', 'string', 'max:50'],
+            'adresse'          => ['nullable', 'string', 'max:255'],
+            'grade'            => ['required', 'string', 'max:50'],
+            'date_recrutement' => ['nullable', 'date'],
+            'etablissement_id' => ['nullable', 'exists:etablissements,id'],
+            'filiere_id'       => ['nullable', 'exists:filieres,id'],
+            'statut'           => ['required', 'in:actif,inactif,suspendu'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'matricule.regex'  => 'Le matricule doit suivre le format FORM-XXX.',
+            'matricule.unique' => 'Ce matricule est déjà utilisé.',
+            'email.unique'     => 'Cet email est déjà utilisé.',
+            'statut.in'        => 'Le statut doit être : actif, inactif ou suspendu.',
+        ];
+    }
+}
+'@
+
+Set-Content -Path "app\Http\Requests\Formateur\StoreFormateurRequest.php" -Value $content1 -Encoding UTF8
+
+# ========== 2. UpdateFormateurRequest ==========
+$content2 = @'
+<?php
+
+namespace App\Http\Requests\Formateur;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdateFormateurRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return auth('admin')->check();
+    }
+
+    public function rules(): array
+    {
+        $id = $this->route('formateur');
+
+        return [
+            'matricule'        => ['required', 'string', 'max:50', Rule::unique('formateurs', 'matricule')->ignore($id), 'regex:/^FORM-\d{3,}$/'],
+            'nom'              => ['required', 'string', 'max:100'],
+            'prenom'           => ['required', 'string', 'max:100'],
+            'email'            => ['required', 'email', 'max:255', Rule::unique('formateurs', 'email')->ignore($id)],
+            'telephone'        => ['nullable', 'string', 'max:20'],
+            'sexe'             => ['nullable', 'in:Masculin,Feminin'],
+            'date_naissance'   => ['nullable', 'date'],
+            'lieu_naissance'   => ['nullable', 'string', 'max:150'],
+            'cin'              => ['nullable', 'string', 'max:50'],
+            'adresse'          => ['nullable', 'string', 'max:255'],
+            'grade'            => ['required', 'string', 'max:50'],
+            'date_recrutement' => ['nullable', 'date'],
+            'etablissement_id' => ['nullable', 'exists:etablissements,id'],
+            'filiere_id'       => ['nullable', 'exists:filieres,id'],
+            'statut'           => ['required', 'in:actif,inactif,suspendu'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'matricule.regex'  => 'Le matricule doit suivre le format FORM-XXX.',
+            'matricule.unique' => 'Ce matricule est déjà utilisé.',
+            'email.unique'     => 'Cet email est déjà utilisé.',
+            'statut.in'        => 'Le statut doit être : actif, inactif ou suspendu.',
+        ];
+    }
+}
+'@
+
+Set-Content -Path "app\Http\Requests\Formateur\UpdateFormateurRequest.php" -Value $content2 -Encoding UTF8
+
+# ========== 3. Vérification ==========
+Write-Host "`n=== Vérification ===" -ForegroundColor Cyan
+Write-Host "StoreFormateurRequest  : $(Test-Path 'app\Http\Requests\Formateur\StoreFormateurRequest.php')" -ForegroundColor Green
+Write-Host "UpdateFormateurRequest : $(Test-Path 'app\Http\Requests\Formateur\UpdateFormateurRequest.php')" -ForegroundColor Green
+
+# ========== 4. Vider les caches ==========
+composer dump-autoload
+php artisan optimize:clear
+
+Write-Host "`n✅ Terminé" -ForegroundColor Green

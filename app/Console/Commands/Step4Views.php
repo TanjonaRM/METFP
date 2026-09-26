@@ -1,0 +1,246 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class Step4Views extends Command
+{
+    protected $signature = 'step4:views';
+    protected $description = 'Crée les vues auth formateur';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [THEME] ÉTAPE 4 : VUES AUTH FORMATEUR                        |');
+        $this->line('+==========================================================+');
+
+        $dir = resource_path('views/formateur/auth');
+        if (!File::exists($dir)) File::makeDirectory($dir, 0755, true);
+
+        // Détecter le layout existant
+        $layouts = ['layouts.guest', 'layouts.admin', 'layouts.formateur'];
+        $layout = 'layouts.guest';
+        foreach ($layouts as $l) {
+            $p = resource_path('views/' . str_replace('.', '/', $l) . '.blade.php');
+            if (File::exists($p)) {
+                $layout = $l;
+                $this->line("   Layout détecté : {$l}");
+                break;
+            }
+        }
+
+        // login
+        File::put($dir . '/login.blade.php', $this->loginView($layout));
+        $this->info('[OK] formateur/auth/login.blade.php');
+
+        // register
+        File::put($dir . '/register.blade.php', $this->registerView($layout));
+        $this->info('[OK] formateur/auth/register.blade.php');
+
+        // pending
+        File::put($dir . '/pending.blade.php', $this->pendingView($layout));
+        $this->info('[OK] formateur/auth/pending.blade.php');
+
+        // refused
+        File::put($dir . '/refused.blade.php', $this->refusedView($layout));
+        $this->info('[OK] formateur/auth/refused.blade.php');
+
+        $this->call('view:clear');
+        $this->call('optimize:clear');
+
+        $this->line('');
+        $this->info('[SUCCESS] ÉTAPE 4 TERMINÉE !');
+        $this->line('-> Passez à l\'étape 5 : php artisan step5:admin');
+
+        return self::SUCCESS;
+    }
+
+    private function loginView(string $layout): string
+    {
+        return <<<BLADE
+@extends('{$layout}')
+@section('title', 'Connexion Formateur')
+
+@section('content')
+<div class="max-w-md mx-auto my-12">
+    <div class="bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
+
+        <div class="text-center mb-6">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-emerald-100 flex items-center justify-center mb-3">
+                <span class="material-symbols-rounded text-emerald-600 text-3xl">person</span>
+            </div>
+            <h1 class="text-2xl font-bold text-slate-900">Connexion Formateur</h1>
+            <p class="text-sm text-slate-500 mt-1">Accédez à votre espace personnel</p>
+        </div>
+
+        @if(session('success'))
+            <div class="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                <p class="text-sm text-emerald-800">{{ session('success') }}</p>
+            </div>
+        @endif
+
+        @if(\$errors->any())
+            <div class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                <ul class="text-sm text-red-800 list-disc list-inside">
+                    @foreach(\$errors->all() as \$err)<li>{{ \$err }}</li>@endforeach
+                </ul>
+            </div>
+        @endif
+
+        <form method="POST" action="{{ route('formateur.login') }}" class="space-y-4">
+            @csrf
+
+            <div>
+                <label for="email" class="block text-xs font-semibold text-slate-700 mb-1">Email</label>
+                <input type="email" name="email" id="email" value="{{ old('email') }}" required
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            </div>
+
+            <div>
+                <label for="password" class="block text-xs font-semibold text-slate-700 mb-1">Mot de passe</label>
+                <input type="password" name="password" id="password" required
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            </div>
+
+            <button type="submit" class="w-full py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition">
+                Se connecter
+            </button>
+        </form>
+
+        <p class="text-center text-sm text-slate-500 mt-6">
+            Pas encore de compte ?
+            <a href="{{ route('formateur.register') }}" class="text-emerald-600 font-semibold hover:underline">S'inscrire</a>
+        </p>
+    </div>
+</div>
+@endsection
+BLADE;
+    }
+
+    private function registerView(string $layout): string
+    {
+        return <<<BLADE
+@extends('{$layout}')
+@section('title', 'Inscription Formateur')
+
+@section('content')
+<div class="max-w-md mx-auto my-12">
+    <div class="bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
+
+        <div class="text-center mb-6">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-emerald-100 flex items-center justify-center mb-3">
+                <span class="material-symbols-rounded text-emerald-600 text-3xl">person_add</span>
+            </div>
+            <h1 class="text-2xl font-bold text-slate-900">Créer un compte</h1>
+            <p class="text-sm text-slate-500 mt-1">Votre demande sera validée par un administrateur</p>
+        </div>
+
+        @if(\$errors->any())
+            <div class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+                <ul class="text-sm text-red-800 list-disc list-inside">
+                    @foreach(\$errors->all() as \$err)<li>{{ \$err }}</li>@endforeach
+                </ul>
+            </div>
+        @endif
+
+        <form method="POST" action="{{ route('formateur.register') }}" class="space-y-4">
+            @csrf
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Nom</label>
+                    <input type="text" name="nom" value="{{ old('nom') }}" required
+                           class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Prénom</label>
+                    <input type="text" name="prenom" value="{{ old('prenom') }}" required
+                           class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Email</label>
+                <input type="email" name="email" value="{{ old('email') }}" required
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Mot de passe</label>
+                <input type="password" name="password" required minlength="8"
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Confirmer le mot de passe</label>
+                <input type="password" name="password_confirmation" required
+                       class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500">
+            </div>
+
+            <button type="submit" class="w-full py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition">
+                Envoyer ma demande
+            </button>
+        </form>
+
+        <p class="text-center text-sm text-slate-500 mt-6">
+            Déjà inscrit ?
+            <a href="{{ route('formateur.login') }}" class="text-emerald-600 font-semibold hover:underline">Se connecter</a>
+        </p>
+    </div>
+</div>
+@endsection
+BLADE;
+    }
+
+    private function pendingView(string $layout): string
+    {
+        return <<<BLADE
+@extends('{$layout}')
+@section('title', 'En attente de validation')
+
+@section('content')
+<div class="max-w-lg mx-auto my-12 text-center">
+    <div class="w-20 h-20 mx-auto rounded-full bg-amber-100 flex items-center justify-center mb-6">
+        <span class="material-symbols-rounded text-amber-600 text-4xl">hourglass_top</span>
+    </div>
+    <h1 class="text-2xl font-bold mb-3 text-slate-900">Inscription en attente</h1>
+    <p class="text-slate-600 mb-8 leading-relaxed">
+        Votre demande a bien été reçue.<br>
+        Un administrateur va l'examiner et vous recevrez un email dès qu'elle sera traitée.
+    </p>
+    <a href="{{ route('formateur.login') }}" class="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700">
+        <span class="material-symbols-rounded text-[18px]">arrow_back</span>
+        Retour à la connexion
+    </a>
+</div>
+@endsection
+BLADE;
+    }
+
+    private function refusedView(string $layout): string
+    {
+        return <<<BLADE
+@extends('{$layout}')
+@section('title', 'Inscription refusée')
+
+@section('content')
+<div class="max-w-lg mx-auto my-12 text-center">
+    <div class="w-20 h-20 mx-auto rounded-full bg-red-100 flex items-center justify-center mb-6">
+        <span class="material-symbols-rounded text-red-600 text-4xl">cancel</span>
+    </div>
+    <h1 class="text-2xl font-bold mb-3 text-slate-900">Inscription refusée</h1>
+    <p class="text-slate-600 mb-8 leading-relaxed">
+        Votre demande d'inscription a été refusée.<br>
+        Contactez l'administration pour plus d'informations.
+    </p>
+    <a href="{{ route('formateur.login') }}" class="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700">
+        Retour à la connexion
+    </a>
+</div>
+@endsection
+BLADE;
+    }
+}

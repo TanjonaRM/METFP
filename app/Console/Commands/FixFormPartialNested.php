@@ -1,0 +1,133 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class FixFormPartialNested extends Command
+{
+    protected $signature = 'fix:form-partial-nested';
+    protected $description = 'Retire le <form> imbriqué du partial _form.blade.php';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [TOOL] SUPPRESSION DU <form> IMBRIQUÉ                       |');
+        $this->line('+==========================================================+');
+        $this->line('');
+
+        $path = resource_path('views/admin/formateurs/partials/_form.blade.php');
+
+        if (!File::exists($path)) {
+            $this->error("[X] Fichier introuvable : {$path}");
+            return self::FAILURE;
+        }
+
+        // Backup
+        File::copy($path, $path . '.bak.' . date('Y-m-d_His'));
+        $this->line('[SAVE] Backup créé');
+
+        $content = File::get($path);
+        $original = $content;
+
+        // ===============================================
+        // 1. Retirer <form ...> et </form> et @csrf
+        // ===============================================
+
+        // Pattern 1 : <form ...>...</form> englobant
+        $content = preg_replace(
+            '/<form\b[^>]*>\s*@csrf\s*/i',
+            '',
+            $content
+        );
+
+        $content = preg_replace(
+            '/<\/form>\s*$/i',
+            '',
+            $content
+        );
+
+        // Retirer @csrf s'il reste seul
+        $content = preg_replace('/@csrf\s*\n/', "\n", $content);
+
+        // ===============================================
+        // 2. Remplacer @error par @if($errs->has(...))
+        // ===============================================
+
+        // @error('field') ... @enderror
+        $content = preg_replace_callback(
+            '/@error\(\s*[\'"]([^\'"]+)[\'"]\s*\)(.*?)@enderror/s',
+            function ($m) {
+                $field = $m[1];
+                $inner = trim($m[2]);
+                return "@if(\$errs->has('{$field}'))\n                    {$inner}\n                @endif";
+            },
+            $content
+        );
+
+        // ===============================================
+        // 3. S'assurer que $errs est défini
+        // ===============================================
+
+        if (!str_contains($content, '$errs =')) {
+            $phpBlock = <<<'BLADE'
+
+@php
+    $errs = $errors ?? new \Illuminate\Support\ViewErrorBag();
+@endphp
+BLADE;
+            $content = $phpBlock . "\n" . $content;
+        }
+
+        // ===============================================
+        // 4. Enregistrer
+        // ===============================================
+
+        if ($content === $original) {
+            $this->warn('[!]️  Aucune modification (déjà propre ?)');
+            return self::SUCCESS;
+        }
+
+        File::put($path, $content);
+        $this->info('[OK] Partial corrigé :');
+
+        // Vérifications
+        $newContent = File::get($path);
+        if (str_contains($newContent, '<form')) {
+            $this->warn('   [!]️  Contient encore <form>');
+        } else {
+            $this->info('   [OK] Plus de <form> imbriqué');
+        }
+
+        if (str_contains($newContent, '@error')) {
+            $this->warn('   [!]️  Contient encore @error');
+        } else {
+            $this->info('   [OK] Plus de @error');
+        }
+
+        if (str_contains($newContent, '$errs =')) {
+            $this->info('   [OK] $errs défini');
+        }
+
+        // ===============================================
+        // 5. Vider caches
+        // ===============================================
+        $this->line('');
+        $this->line('> Vidage des caches');
+        $this->call('view:clear');
+        $this->call('optimize:clear');
+
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [SUCCESS] TERMINÉ                                              |');
+        $this->line('+==========================================================+');
+        $this->line('');
+        $this->line('-> Testez : http://localhost:8000/admin/formateurs');
+        $this->line('   F12 -> clic "Ajouter un formateur"');
+        $this->line('   Attendu : [BLUE] Ouverture + [BOX] Formulaire chargé + FORMULAIRE VISIBLE');
+
+        return self::SUCCESS;
+    }
+}

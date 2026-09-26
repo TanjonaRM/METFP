@@ -1,0 +1,53 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Auth\Admin\LoginController as AdminLogin;
+use App\Http\Controllers\Auth\Admin\RegisterController as AdminRegister;
+use App\Http\Controllers\Auth\Admin\LogoutController as AdminLogout;
+use App\Http\Controllers\Auth\Admin\ForgotPasswordController as AdminForgot;
+use App\Http\Controllers\Auth\Admin\ResetPasswordController as AdminReset;
+use App\Http\Controllers\Auth\Formateur\LoginController as FormateurLogin;
+use App\Http\Controllers\Auth\Formateur\RegisterController as FormateurRegister;
+use App\Http\Controllers\Auth\Formateur\LogoutController as FormateurLogout;
+use App\Http\Controllers\Auth\Formateur\ForgotPasswordController as FormateurForgot;
+use App\Http\Controllers\Auth\Formateur\ResetPasswordController as FormateurReset;
+
+// ===== ADMIN =====
+Route::prefix('admin')->name('admin.')->group(function () {
+
+    Route::middleware('guest.admin')->group(function () {
+        Route::get('/login', [AdminLogin::class, 'showLoginForm'])->name('login');
+        Route::post('/login', [AdminLogin::class, 'login'])->name('login.submit');
+        Route::get('/register', [AdminRegister::class, 'showRegistrationForm'])->name('register');
+        Route::post('/register', [AdminRegister::class, 'register'])->name('register.submit');
+
+        Route::get('/forgot-password', [AdminForgot::class, 'showLinkRequestForm'])->name('password.request');
+        Route::post('/forgot-password', [AdminForgot::class, 'sendResetLinkEmail'])->name('password.email');
+        Route::get('/reset-password/{token}', [AdminReset::class, 'showResetForm'])->name('password.reset');
+        Route::post('/reset-password', [AdminReset::class, 'reset'])->name('password.update');
+    });
+
+    Route::middleware('auth:admin')->group(function () {
+        Route::post('/logout', [AdminLogout::class, 'logout'])->name('logout');
+    });
+});
+
+// ===== FORMATEUR =====
+Route::prefix('formateur')->name('formateur.')->group(function () {
+
+    Route::middleware('guest.formateur')->group(function () {
+        Route::get('/login', [FormateurLogin::class, 'showLoginForm'])->name('login');
+        Route::post('/login', [FormateurLogin::class, 'login'])->name('login.submit');
+        Route::get('/register', [FormateurRegister::class, 'showRegistrationForm'])->name('register');
+        Route::post('/register', [FormateurRegister::class, 'register'])->name('register.submit');
+
+        Route::get('/forgot-password', [FormateurForgot::class, 'showLinkRequestForm'])->name('password.request');
+        Route::post('/forgot-password', [FormateurForgot::class, 'sendResetLinkEmail'])->name('password.email');
+        Route::get('/reset-password/{token}', [FormateurReset::class, 'showResetForm'])->name('password.reset');
+        Route::post('/reset-password', [FormateurReset::class, 'reset'])->name('password.update');
+    });
+
+    Route::middleware('auth:formateur')->group(function () {
+        Route::post('/logout', [FormateurLogout::class, 'logout'])->name('logout');
+    });
+});

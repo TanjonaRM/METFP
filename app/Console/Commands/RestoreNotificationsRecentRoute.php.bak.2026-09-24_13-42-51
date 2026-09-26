@@ -1,0 +1,177 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class RestoreNotificationsRecentRoute extends Command
+{
+    protected $signature = 'project:restore-notifications-recent-route
+                            {--backup : Sauvegarder le fichier (.bak)}
+                            {--force : Écraser sans confirmation}';
+
+    protected $description = 'Restaure la route admin.notifications.recent (nécessaire pour la modal)';
+
+    public function handle(): int
+    {
+        $this->info("🔧 Restauration de la route notifications.recent");
+        $this->newLine();
+
+        $routesPath = base_path('routes/admin.php');
+
+        if (!File::exists($routesPath)) {
+            $this->error("❌ routes/admin.php introuvable");
+            return self::FAILURE;
+        }
+
+        if ($this->option('backup')) {
+            File::copy($routesPath, $routesPath . '.bak.' . date('Y-m-d_H-i-s'));
+            $this->line("  💾 Backup : routes/admin.php");
+        }
+
+        $content = File::get($routesPath);
+
+        // ============================================================
+        // 1. Vérifier que le use du contrôleur existe
+        // ============================================================
+        if (!str_contains($content, 'NotificationController')) {
+            $this->error("  ❌ NotificationController non importé dans routes/admin.php");
+            $this->line("     Ajoutez ce use en haut du fichier :");
+            $this->line("     use App\\Http\\Controllers\\Admin\\NotificationController;");
+            return self::FAILURE;
+        }
+
+        // ============================================================
+        // 2. Vérifier si la route existe déjà
+        // ============================================================
+        if (str_contains($content, "notifications.recent")) {
+            $this->line("  ⚠️  Route notifications.recent existe déjà");
+            return self::SUCCESS;
+        }
+
+        // ============================================================
+        // 3. Ajouter la route dans le groupe notifications
+        // ============================================================
+        $pattern = "/(Route::prefix\('notifications'\)->name\('notifications\.'\)->group\(function \(\) \{)/";
+
+        if (preg_match($pattern, $content)) {
+            $newRoutes = "\n            Route::get('/recent', [NotificationController::class, 'recent'])->name('recent');\n            Route::get('/count', [NotificationController::class, 'count'])->name('count');\n";
+
+            $content = preg_replace($pattern, '$1' . $newRoutes, $content);
+
+            File::put($routesPath, $content);
+            $this->line("  ✅ Route notifications.recent ajoutée");
+            $this->line("  ✅ Route notifications.count restaurée (si absente)");
+        } else {
+            $this->error("  ❌ Impossible de trouver le groupe notifications");
+            $this->line("  → Ajoutez manuellement ces 2 lignes dans le groupe :");
+            $this->line("     Route::get('/recent', [NotificationController::class, 'recent'])->name('recent');");
+            $this->line("     Route::get('/count', [NotificationController::class, 'count'])->name('count');");
+            return self::FAILURE;
+        }
+
+        // ============================================================
+        // 4. Vérifier que la méthode recent() existe dans le contrôleur
+        // ============================================================
+        $controllerPath = base_path('app/Http/Controllers/Admin/NotificationController.php');
+
+        if (File::exists($controllerPath)) {
+            $controllerContent = File::get($controllerPath);
+
+            if (!str_contains($controllerContent, 'public function recent()')) {
+                $this->warn("  ⚠️  Méthode recent() manquante dans le contrôleur");
+                $this->line("     → Ajout automatique...");
+
+                if ($this->option('backup')) {
+                    File::copy($controllerPath, $controllerPath . '.bak.' . date('Y-m-d_H-i-s'));
+                }
+
+                $method = <<<'PHP'
+
+    /**
+     * Retourne les 15 dernières notifications (JSON) — pour la modal
+     */
+    public function recent()
+    {
+        $notifications = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', \Illuminate\Support\Facades\Auth::guard('admin')->id());
+            })
+            ->latest()
+            ->take(15)
+            ->get()
+            ->map(fn($n) => [
+                'id'      => $n->id,
+                'titre'   => $n->titre,
+                'message' => $n->message,
+                'type'    => $n->type,
+                'icone'   => $n->icone ?? 'notifications',
+                'lu'      => (bool) $n->lu,
+                'lien'    => $n->lien,
+                'date'    => $n->created_at?->diffForHumans(),
+            ]);
+
+        $nonLues = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', \Illuminate\Support\Facades\Auth::guard('admin')->id());
+            })
+            ->where('lu', false)
+            ->count();
+
+        return response()->json([
+            'notifications' => $notifications,
+            'non_lues'      => $nonLues,
+        ]);
+    }
+
+PHP;
+
+                // Insérer avant la dernière accolade
+                $lastBrace = strrpos($controllerContent, '}');
+                $controllerContent = substr_replace($controllerContent, $method, $lastBrace, 0);
+
+                File::put($controllerPath, $controllerContent);
+                $this->line("  ✅ Méthode recent() ajoutée");
+            } else {
+                $this->line("  ✅ Méthode recent() existe déjà");
+            }
+        }
+
+        // ============================================================
+        // 5. Nettoyer les caches
+        // ============================================================
+        $this->newLine();
+        $this->info("🧹 Nettoyage des caches...");
+        $this->call('route:clear');
+        $this->call('view:clear');
+        $this->call('cache:clear');
+
+        // ============================================================
+        // 6. Vérification
+        // ============================================================
+        $this->newLine();
+        $this->info("🔍 Vérification...");
+
+        try {
+            $routes = app('router')->getRoutes();
+            $required = ['admin.notifications.recent', 'admin.notifications.count'];
+
+            foreach ($required as $routeName) {
+                if ($routes->hasNamedRoute($routeName)) {
+                    $this->line("  ✅ {$routeName}");
+                } else {
+                    $this->line("  ❌ {$routeName} — MANQUANTE");
+                }
+            }
+        } catch (\Exception $e) {
+            $this->warn("  ⚠️  Vérification impossible : " . $e->getMessage());
+        }
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS");
+        $this->line("  → Testez : http://localhost:8000/admin/dashboard");
+
+        return self::SUCCESS;
+    }
+}

@@ -1,0 +1,61 @@
+@extends('layouts.guest')
+@section('title', 'Réinitialiser le mot de passe')
+
+@section('content')
+<div class="min-h-screen flex items-center justify-center p-6
+            bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900">
+
+    <div class="w-full max-w-md bg-white rounded-2xl shadow-2xl p-10 animate-fade-up">
+
+        <div class="flex flex-col items-center mb-8">
+            <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700
+                        flex items-center justify-center shadow-lg mb-5">
+                <span class="material-symbols-rounded text-white text-3xl"
+                      style="font-variation-settings: 'FILL' 1;">key</span>
+            </div>
+            <h1 class="font-display text-2xl font-bold text-slate-900 text-center">
+                Nouveau mot de passe
+            </h1>
+            <p class="text-sm text-slate-500 text-center mt-1.5">
+                Choisissez un nouveau mot de passe sécurisé
+            </p>
+        </div>
+
+        @if ($errors->any())
+            <div class="flex items-start gap-2.5 px-4 py-3.5 rounded-lg mb-5
+                        bg-red-50 border border-red-200 text-red-800 text-sm">
+                <span class="material-symbols-rounded text-[20px] shrink-0">error</span>
+                <div>@foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach</div>
+            </div>
+        @endif
+
+        <form action="{{ route('admin.password.update') }}" method="POST" class="space-y-5">
+            @csrf
+            <input type="hidden" name="token" value="{{ $token ?? '' }}">
+
+            <div>
+                <label class="form-label">Adresse email</label>
+                <input type="email" name="email" value="{{ old('email', $email ?? '') }}"
+                       required readonly class="form-input bg-slate-100">
+            </div>
+
+            <div>
+                <label class="form-label">Nouveau mot de passe</label>
+                <input type="password" name="password" placeholder="********"
+                       required class="form-input">
+            </div>
+
+            <div>
+                <label class="form-label">Confirmation</label>
+                <input type="password" name="password_confirmation"
+                       placeholder="********" required class="form-input">
+            </div>
+
+            <button type="submit" class="w-full btn-primary justify-center py-3">
+                Réinitialiser
+                <span class="material-symbols-rounded text-[18px]">check</span>
+            </button>
+        </form>
+    </div>
+</div>
+@endsection

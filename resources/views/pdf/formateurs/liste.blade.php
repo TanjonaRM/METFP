@@ -1,0 +1,46 @@
+@extends('pdf.layouts.base')
+@section('title', 'Liste des formateurs')
+@section('doc-title', 'LISTE DES FORMATEURS')
+@section('doc-subtitle', 'Nombre total : ' . $formateurs->count() . ' formateur(s)')
+
+@section('content')
+<table>
+    <thead>
+        <tr>
+            <th style="width: 12%;">Matricule</th>
+            <th style="width: 22%;">Nom complet</th>
+            <th style="width: 22%;">Email</th>
+            <th style="width: 12%;">Téléphone</th>
+            <th style="width: 20%;">Établissement</th>
+            <th style="width: 12%;">Grade</th>
+        </tr>
+    </thead>
+    <tbody>
+        @forelse($formateurs as $f)
+            <tr>
+                <td><strong>{{ $f->matricule ?? '-' }}</strong></td>
+                <td>{{ $f->prenom ?? '' }} {{ $f->nom ?? '' }}</td>
+                <td>{{ $f->email ?? '-' }}</td>
+                <td>{{ $f->telephone ?? '-' }}</td>
+                <td>{{ $f->etablissement->nom ?? '-' }}</td>
+                <td>{{ $f->grade ?? '-' }}</td>
+            </tr>
+        @empty
+            <tr><td colspan="6" class="no-data">Aucun formateur trouvé</td></tr>
+        @endforelse
+    </tbody>
+</table>
+
+<div class="signatures">
+    <table>
+        <tr>
+            <td>
+                <div class="signature-block">
+                    <p class="title">Le Responsable</p>
+                    <p class="line">Nom et signature</p>
+                </div>
+            </td>
+        </tr>
+    </table>
+</div>
+@endsection

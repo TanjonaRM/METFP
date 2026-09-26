@@ -1,0 +1,60 @@
+<?php
+
+namespace App\Http\Controllers\Auth\Formateur;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+
+class LoginController extends Controller
+{
+    public function showLoginForm()
+    {
+        if (Auth::guard('formateur')->check()) {
+            return redirect()->route('formateur.dashboard');
+        }
+        return view('auth.formateur.login');
+    }
+
+    public function login(Request $request)
+    {
+        $request->validate([
+            'email'    => 'required|email',
+            'password' => 'required|string',
+        ]);
+
+        $credentials = $request->only('email', 'password');
+
+        // 1. Tenter l'authentification
+        if (!Auth::guard('formateur')->attempt($credentials, $request->filled('remember'))) {
+            return back()
+                ->withInput($request->only('email'))
+                ->withErrors(['email' => 'Identifiants incorrects.']);
+        }
+
+        $formateur = Auth::guard('formateur')->user();
+
+        // 2. Vérifier le statut
+        if ($formateur->statut !== 'actif') {
+            Auth::guard('formateur')->logout();
+
+            $messages = [
+                'en_attente' => '⏳ Votre inscription est en attente de validation. Vous recevrez un email dès qu\'un administrateur l\'aura traitée.',
+                'refuse'     => '❌ Votre inscription a été refusée' . ($formateur->motif_refus ? ' : ' . $formateur->motif_refus : '.'),
+                'suspendu'   => '⛔ Votre compte a été suspendu. Contactez l\'administration.',
+                'inactif'    => '⚠️ Votre compte est inactif.',
+            ];
+
+            return back()
+                ->withInput($request->only('email'))
+                ->withErrors([
+                    'email' => $messages[$formateur->statut] ?? 'Accès refusé.',
+                ]);
+        }
+
+        // 3. Régénérer la session et rediriger
+        $request->session()->regenerate();
+
+        return redirect()->intended(route('formateur.dashboard'));
+    }
+}

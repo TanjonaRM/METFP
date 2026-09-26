@@ -1,0 +1,379 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class FinalizeEtablissementFiliereForms extends Command
+{
+    protected $signature = 'finalize:forms';
+    protected $description = 'Finalise les formulaires Établissement et Filière selon les vraies données';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line('║   🎯 FINALISATION DES FORMULAIRES                         ║');
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+        $this->line('');
+
+        $this->updateEtablissementForm();
+        $this->updateEtablissementController();
+        $this->updateEtablissementRequest();
+        $this->updateFiliereForm();
+
+        // Vidage caches
+        $this->line('');
+        $this->line('▶ Vidage des caches');
+        $this->call('optimize:clear');
+        $this->call('view:clear');
+        $this->info('✅ Caches vidés');
+
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line('║   🎉 TERMINÉ                                              ║');
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+
+        return self::SUCCESS;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 1. FORMULAIRE ÉTABLISSEMENT (sans code)
+    // ═══════════════════════════════════════════════════════
+    private function updateEtablissementForm(): void
+    {
+        $this->line('▶ 1/4 — Formulaire Établissement');
+
+        $path = resource_path('views/admin/etablissements/partials/_form.blade.php');
+        if (!File::exists($path)) {
+            $this->error("   ❌ Introuvable : {$path}");
+            return;
+        }
+
+        File::copy($path, $path . '.bak.' . date('Y-m-d_His'));
+
+        File::put($path, $this->getEtablissementForm());
+        $this->info('   ✅ _form.blade.php mis à jour (sans code)');
+
+        // Aussi form.blade.php si existe
+        $formPath = resource_path('views/admin/etablissements/partials/form.blade.php');
+        if (File::exists($formPath)) {
+            File::copy($formPath, $formPath . '.bak.' . date('Y-m-d_His'));
+            File::put($formPath, $this->getEtablissementForm());
+            $this->info('   ✅ form.blade.php mis à jour');
+        }
+    }
+
+    private function getEtablissementForm(): string
+    {
+        return <<<'BLADE'
+{{-- ═══════════════════════════════════════════════════════════ --}}
+{{-- Formulaire Établissement                                    --}}
+{{-- Type : liste (CFP / LTP) — Nom : libre — Code : auto serveur--}}
+{{-- ═══════════════════════════════════════════════════════════ --}}
+
+@php
+    $errs = $errors ?? new \Illuminate\Support\ViewErrorBag();
+
+    // Types réels de votre DB : CFP et LTP
+    $types = [
+        'CFP' => 'CFP — Centre de Formation Professionnelle',
+        'LTP' => 'LTP — Lycée Technique Professionnel',
+    ];
+
+    // Régions réelles (à enrichir plus tard)
+    $regions = [
+        'Analamanga'      => 'Analamanga',
+        'Vakinankaratra'  => 'Vakinankaratra',
+        'Itasy'           => 'Itasy',
+        'Bongolava'       => 'Bongolava',
+        'Sofia'           => 'Sofia',
+        'Boeny'           => 'Boeny',
+        'Betsiboka'       => 'Betsiboka',
+        'Melaky'          => 'Melaky',
+        'Alaotra-Mangoro' => 'Alaotra-Mangoro',
+        'Atsinanana'      => 'Atsinanana',
+        'Analanjirofo'    => 'Analanjirofo',
+        'Vatovavy'        => 'Vatovavy',
+        'Fitovinany'      => 'Fitovinany',
+        'Atsimo-Atsinanana' => 'Atsimo-Atsinanana',
+        'Ihorombe'        => 'Ihorombe',
+        'Menabe'          => 'Menabe',
+        'Amoron\'i Mania' => 'Amoron\'i Mania',
+        'Haute Matsiatra' => 'Haute Matsiatra',
+        'Atsimo-Andrefana' => 'Atsimo-Andrefana',
+        'Androy'          => 'Androy',
+        'Anosy'           => 'Anosy',
+        'Diana'           => 'Diana',
+        'Sava'            => 'Sava',
+    ];
+@endphp
+
+@if ($errs->any())
+    <div class="mb-4 rounded-lg bg-red-50 border border-red-200 p-3">
+        <p class="text-sm font-semibold text-red-800 mb-1">⚠️ Erreurs :</p>
+        <ul class="text-xs text-red-700 list-disc list-inside space-y-0.5">
+            @foreach ($errs->all() as $err)
+                <li>{{ $err }}</li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
+<div class="space-y-4">
+
+    {{-- ═══ Type ═══ --}}
+    <div>
+        <label for="type" class="block text-xs font-semibold text-slate-700 mb-1">
+            Type <span class="text-red-500">*</span>
+        </label>
+        <select name="type" id="type" required
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                       focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="">— Sélectionner un type —</option>
+            @foreach($types as $code => $label)
+                <option value="{{ $code }}" @selected(old('type') === $code)>{{ $label }}</option>
+            @endforeach
+        </select>
+        @if($errs->has('type'))
+            <p class="text-xs text-red-600 mt-1">{{ $errs->first('type') }}</p>
+        @endif
+    </div>
+
+    {{-- ═══ Nom ═══ --}}
+    <div>
+        <label for="nom" class="block text-xs font-semibold text-slate-700 mb-1">
+            Nom <span class="text-red-500">*</span>
+        </label>
+        <input type="text" name="nom" id="nom"
+               value="{{ old('nom') }}"
+               placeholder="Ex: CFP AMBILOBE"
+               required
+               class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                      focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        <p class="text-[11px] text-slate-500 mt-1">
+            Le code sera généré automatiquement : <span class="font-mono">TYPE-PREMIER-MOT</span>
+        </p>
+        @if($errs->has('nom'))
+            <p class="text-xs text-red-600 mt-1">{{ $errs->first('nom') }}</p>
+        @endif
+    </div>
+
+    {{-- ═══ Région ═══ --}}
+    <div>
+        <label for="region" class="block text-xs font-semibold text-slate-700 mb-1">
+            Région <span class="text-red-500">*</span>
+        </label>
+        <select name="region" id="region" required
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                       focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="">— Sélectionner une région —</option>
+            @foreach($regions as $code => $label)
+                <option value="{{ $code }}" @selected(old('region') === $code)>{{ $label }}</option>
+            @endforeach
+        </select>
+        @if($errs->has('region'))
+            <p class="text-xs text-red-600 mt-1">{{ $errs->first('region') }}</p>
+        @endif
+    </div>
+
+    {{-- ═══ Contact ═══ --}}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="telephone" class="block text-xs font-semibold text-slate-700 mb-1">Téléphone</label>
+            <input type="text" name="telephone" id="telephone" value="{{ old('telephone') }}"
+                   placeholder="034 XX XXX XX"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div>
+            <label for="email" class="block text-xs font-semibold text-slate-700 mb-1">Email</label>
+            <input type="email" name="email" id="email" value="{{ old('email') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+    </div>
+
+    <div>
+        <label for="contact_responsable" class="block text-xs font-semibold text-slate-700 mb-1">
+            Contact responsable
+        </label>
+        <input type="text" name="contact_responsable" id="contact_responsable"
+               value="{{ old('contact_responsable') }}"
+               placeholder="Ex: M. RAKOTO Jean"
+               class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                      focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+    </div>
+
+    <div>
+        <label for="adresse" class="block text-xs font-semibold text-slate-700 mb-1">Adresse</label>
+        <textarea name="adresse" id="adresse" rows="2"
+                  class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                         focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">{{ old('adresse') }}</textarea>
+    </div>
+
+    <div>
+        <label for="statut" class="block text-xs font-semibold text-slate-700 mb-1">Statut</label>
+        <select name="statut" id="statut"
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                       focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            <option value="actif"   @selected(old('statut', 'actif') === 'actif')>Actif</option>
+            <option value="inactif" @selected(old('statut') === 'inactif')>Inactif</option>
+        </select>
+    </div>
+
+</div>
+BLADE;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 2. CONTROLLER — Auto-génération du code
+    // ═══════════════════════════════════════════════════════
+    private function updateEtablissementController(): void
+    {
+        $this->line('');
+        $this->line('▶ 2/4 — Controller Etablissement');
+
+        $path = app_path('Http/Controllers/Admin/EtablissementController.php');
+        if (!File::exists($path)) {
+            $this->error("   ❌ Introuvable");
+            return;
+        }
+
+        File::copy($path, $path . '.bak.' . date('Y-m-d_His'));
+        $content = File::get($path);
+
+        // Vérifier si déjà modifié
+        if (str_contains($content, 'generateCode') || str_contains($content, "strtoupper(substr")) {
+            $this->warn('   ⏭️  Déjà modifié');
+            return;
+        }
+
+        // Trouver la méthode store()
+        $pattern = '/(public function store\s*\([^)]*\)\s*\{)(.*?)(\n    \})/s';
+
+        if (preg_match($pattern, $content, $m)) {
+            $body = $m[2];
+
+            // Injecter la génération du code AVANT le create
+            $insertCode = <<<'PHP'
+
+        // ⚡ Auto-génération du code : TYPE-PREMIER-MOT
+        if (empty($data['code'])) {
+            $type = strtoupper(trim($data['type'] ?? 'ETB'));
+            // Retirer le type du début du nom si présent
+            $nom = trim($data['nom'] ?? '');
+            $nom = preg_replace('/^' . preg_quote($type, '/') . '\s+/i', '', $nom);
+            // Prendre le premier mot
+            $parts = preg_split('/[\s\-]+/', $nom);
+            $mot = strtoupper($parts[0] ?? 'X');
+            $data['code'] = $type . '-' . $mot;
+        }
+
+PHP;
+
+            // Chercher FormateurModel::create ou EtablissementModel::create
+            if (preg_match('/(\$etablissement\s*=\s*EtablissementModel::create\()/s', $body)) {
+                $body = preg_replace(
+                    '/(\$etablissement\s*=\s*EtablissementModel::create\()/s',
+                    $insertCode . '$1',
+                    $body
+                );
+            } elseif (preg_match('/(EtablissementModel::create\()/s', $body)) {
+                $body = preg_replace(
+                    '/(EtablissementModel::create\()/s',
+                    $insertCode . '$1',
+                    $body
+                );
+            }
+
+            $content = $m[1] . $body . $m[3];
+            File::put($path, $content);
+            $this->info('   ✅ Auto-génération du code injectée dans store()');
+        } else {
+            $this->warn('   ⚠️  Méthode store() introuvable');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 3. FORM REQUEST — Retirer code obligatoire
+    // ═══════════════════════════════════════════════════════
+    private function updateEtablissementRequest(): void
+    {
+        $this->line('');
+        $this->line('▶ 3/4 — Form Request Etablissement');
+
+        $paths = [
+            app_path('Http/Requests/Etablissement/StoreEtablissementRequest.php'),
+            app_path('Http/Requests/Etablissement/UpdateEtablissementRequest.php'),
+        ];
+
+        foreach ($paths as $path) {
+            if (!File::exists($path)) {
+                $this->warn("   ⏭️  " . basename($path) . " introuvable");
+                continue;
+            }
+
+            File::copy($path, $path . '.bak.' . date('Y-m-d_His'));
+            $content = File::get($path);
+
+            // Rendre le code 'nullable'
+            $content = preg_replace(
+                "/'code'\s*=>\s*\[[^\]]*\]/",
+                "'code'      => ['nullable', 'string', 'max:50'],",
+                $content
+            );
+
+            File::put($path, $content);
+            $this->info('   ✅ ' . basename($path) . ' : code rendu nullable');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 4. FORMULAIRE FILIÈRE — Retirer description
+    // ═══════════════════════════════════════════════════════
+    private function updateFiliereForm(): void
+    {
+        $this->line('');
+        $this->line('▶ 4/4 — Formulaire Filière (retirer description)');
+
+        $paths = [
+            resource_path('views/admin/filieres/partials/_form.blade.php'),
+            resource_path('views/admin/filieres/partials/form.blade.php'),
+        ];
+
+        foreach ($paths as $path) {
+            if (!File::exists($path)) continue;
+
+            File::copy($path, $path . '.bak.' . date('Y-m-d_His'));
+            $content = File::get($path);
+
+            // Retirer le bloc description (textarea)
+            $patterns = [
+                '/<div[^>]*>\s*<label[^>]*for="description"[^>]*>.*?<\/label>\s*<textarea[^>]*name="description"[^>]*>.*?<\/textarea>.*?<\/div>/s',
+                '/<div[^>]*>\s*<label[^>]*>.*?Description.*?<\/label>.*?<\/div>/s',
+                '/<textarea[^>]*name="description"[^>]*>.*?<\/textarea>/s',
+            ];
+
+            $removed = false;
+            foreach ($patterns as $pattern) {
+                if (preg_match($pattern, $content)) {
+                    $content = preg_replace($pattern, '', $content);
+                    $removed = true;
+                    break;
+                }
+            }
+
+            if ($removed) {
+                // Nettoyer les sauts de ligne multiples
+                $content = preg_replace("/\n\s*\n\s*\n/", "\n\n", $content);
+                File::put($path, $content);
+                $this->info('   ✅ ' . basename($path) . ' : description retirée');
+            } else {
+                $this->warn('   ⏭️  ' . basename($path) . ' : description déjà absente');
+            }
+        }
+    }
+}

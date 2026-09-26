@@ -1,0 +1,177 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class Step3Mailables extends Command
+{
+    protected $signature = 'step3:mailables';
+    protected $description = 'Crée les Mailables et vues email';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line('║   📧 ÉTAPE 3 : MAILABLES + VUES EMAIL                     ║');
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+
+        // Dossiers
+        $mailDir = app_path('Mail');
+        if (!File::exists($mailDir)) File::makeDirectory($mailDir, 0755, true);
+
+        $emailViewDir = resource_path('views/emails');
+        if (!File::exists($emailViewDir)) File::makeDirectory($emailViewDir, 0755, true);
+
+        // Mailables
+        File::put($mailDir . '/FormateurApprouveMail.php', $this->approvedMail());
+        $this->info('✅ FormateurApprouveMail.php');
+
+        File::put($mailDir . '/FormateurRefuseMail.php', $this->refusedMail());
+        $this->info('✅ FormateurRefuseMail.php');
+
+        // Vues email
+        File::put($emailViewDir . '/formateur-approuve.blade.php', $this->approvedView());
+        $this->info('✅ emails/formateur-approuve.blade.php');
+
+        File::put($emailViewDir . '/formateur-refuse.blade.php', $this->refusedView());
+        $this->info('✅ emails/formateur-refuse.blade.php');
+
+        $this->line('');
+        $this->info('🎉 ÉTAPE 3 TERMINÉE !');
+        $this->line('👉 Passez à l\'étape 4 : php artisan step4:views');
+
+        return self::SUCCESS;
+    }
+
+    private function approvedMail(): string
+    {
+        return <<<'PHP'
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+
+class FormateurApprouveMail extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    public function __construct(
+        public $formateur,
+        public ?string $messageAdmin = null
+    ) {}
+
+    public function build()
+    {
+        return $this->subject('✅ Votre inscription a été approuvée — SG Formateurs')
+                    ->view('emails.formateur-approuve');
+    }
+}
+PHP;
+    }
+
+    private function refusedMail(): string
+    {
+        return <<<'PHP'
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+
+class FormateurRefuseMail extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    public function __construct(
+        public $formateur,
+        public ?string $motif = null
+    ) {}
+
+    public function build()
+    {
+        return $this->subject('❌ Votre inscription — SG Formateurs')
+                    ->view('emails.formateur-refuse');
+    }
+}
+PHP;
+    }
+
+    private function approvedView(): string
+    {
+        return <<<'BLADE'
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Inscription approuvée</title>
+</head>
+<body style="font-family: Arial, sans-serif; background: #f9fafb; padding: 40px 20px; margin: 0;">
+    <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden;">
+        <div style="background: linear-gradient(135deg, #10b981, #047857); padding: 32px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 22px;">✅ Inscription approuvée</h1>
+        </div>
+        <div style="padding: 32px;">
+            <p style="font-size: 15px; color: #0f172a;">Bonjour <strong>{{ $formateur->prenom }} {{ $formateur->nom }}</strong>,</p>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                Votre inscription sur <strong>SG Formateurs</strong> a été <strong style="color: #10b981;">approuvée</strong>.
+            </p>
+            @if($messageAdmin)
+                <div style="background: #ecfdf5; border-left: 4px solid #10b981; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0; font-size: 13px; color: #047857;">
+                        <strong>Message :</strong><br>{{ $messageAdmin }}
+                    </p>
+                </div>
+            @endif
+            <div style="text-align: center; margin: 32px 0;">
+                <a href="{{ route('formateur.login') }}"
+                   style="display: inline-block; background: #10b981; color: white; padding: 14px 32px; text-decoration: none; border-radius: 10px; font-weight: bold;">
+                    Se connecter →
+                </a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+BLADE;
+    }
+
+    private function refusedView(): string
+    {
+        return <<<'BLADE'
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Inscription refusée</title>
+</head>
+<body style="font-family: Arial, sans-serif; background: #f9fafb; padding: 40px 20px; margin: 0;">
+    <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden;">
+        <div style="background: linear-gradient(135deg, #ef4444, #b91c1c); padding: 32px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 22px;">❌ Inscription refusée</h1>
+        </div>
+        <div style="padding: 32px;">
+            <p style="font-size: 15px; color: #0f172a;">Bonjour <strong>{{ $formateur->prenom }} {{ $formateur->nom }}</strong>,</p>
+            <p style="font-size: 14px; color: #475569; line-height: 1.6;">
+                Votre inscription sur <strong>SG Formateurs</strong> a été refusée.
+            </p>
+            @if($motif)
+                <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; margin: 20px 0;">
+                    <p style="margin: 0; font-size: 13px; color: #b91c1c;">
+                        <strong>Motif :</strong><br>{{ $motif }}
+                    </p>
+                </div>
+            @endif
+        </div>
+    </div>
+</body>
+</html>
+BLADE;
+    }
+}

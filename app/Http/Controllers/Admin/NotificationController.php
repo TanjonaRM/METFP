@@ -1,0 +1,168 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Notification;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+
+class NotificationController extends Controller
+{
+    public function index(Request $request)
+    {
+        $query = Notification::query()
+            ->where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->latest();
+
+        if ($request->filled('statut')) {
+            if ($request->statut === 'non_lues') $query->where('lu', false);
+            elseif ($request->statut === 'lues') $query->where('lu', true);
+        }
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function ($q) use ($s) {
+                $q->where('titre', 'like', "%{$s}%")
+                  ->orWhere('message', 'like', "%{$s}%");
+            });
+        }
+
+        $notifications = $query->paginate(20)->withQueryString();
+
+        $baseQuery = Notification::where(function ($q) {
+            $q->whereNull('user_id')
+              ->orWhere('user_id', Auth::guard('admin')->id());
+        });
+
+        $stats = [
+            'total'    => (clone $baseQuery)->count(),
+            'non_lues' => (clone $baseQuery)->where('lu', false)->count(),
+            'lues'     => (clone $baseQuery)->where('lu', true)->count(),
+        ];
+
+        return view('admin.notifications.index', compact('notifications', 'stats'));
+    }
+
+    public function count()
+    {
+        $nonLues = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->where('lu', false)
+            ->count();
+
+        return response()->json(['non_lues' => $nonLues]);
+    }
+
+    public function recent()
+    {
+        $notifications = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->latest()
+            ->take(15)
+            ->get()
+            ->map(fn($n) => [
+                'id'      => $n->id,
+                'titre'   => $n->titre,
+                'message' => $n->message,
+                'type'    => $n->type,
+                'icone'   => $n->icone ?? 'notifications',
+                'lu'      => (bool) $n->lu,
+                'lien'    => $n->lien,
+                'date'    => $n->created_at?->diffForHumans(),
+            ]);
+
+        $nonLues = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->where('lu', false)
+            ->count();
+
+        return response()->json([
+            'notifications' => $notifications,
+            'non_lues'      => $nonLues,
+        ]);
+    }
+
+    /**
+     * [AJAX] REDIRECTION AUTOMATIQUE vers l'onglet concerné
+     */
+    public function show(int $id)
+    {
+        $notification = Notification::findOrFail($id);
+
+        if (!$notification->lu) {
+            $notification->update(['lu' => true]);
+        }
+
+        // Décoder les données
+        $data = is_string($notification->data)
+            ? json_decode($notification->data, true)
+            : $notification->data;
+
+        // [AJAX] Redirection selon le type
+        if (isset($data['type'])) {
+            if ($data['type'] === 'demande_affectation') {
+                return redirect()->to('/admin/affectations?tab=demandes');
+            }
+            if ($data['type'] === 'demande_session') {
+                return redirect()->to('/admin/sessions?tab=demandes');
+            }
+        }
+
+        // Sinon utiliser le lien
+        if ($notification->lien) {
+            return redirect($notification->lien);
+        }
+
+        return redirect()->route('admin.dashboard');
+    }
+
+    public function markAsRead(int $id)
+    {
+        Notification::findOrFail($id)->update(['lu' => true]);
+        return response()->json(['success' => true]);
+    }
+
+    public function markAllAsRead()
+    {
+        Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->where('lu', false)
+            ->update(['lu' => true]);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function destroy(int $id)
+    {
+        Notification::findOrFail($id)->delete();
+        return response()->json(['success' => true]);
+    }
+
+    public function destroyAll()
+    {
+        Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->where('lu', true)
+            ->delete();
+
+        return response()->json(['success' => true]);
+    }
+}

@@ -1,0 +1,140 @@
+@extends('layouts.admin')
+@section('title', 'Établissements')
+
+@section('content')
+
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+    <div>
+        <h1 class="font-display text-2xl font-bold text-slate-900">Établissements</h1>
+        <p class="text-sm text-slate-500 mt-1">Gestion des établissements de formation</p>
+    </div>
+    <button<a class="btn-primary" onclick="openEtablissementModal()" type="button">
+        <span class="material-symbols-rounded text-[18px]">add</span>
+        Ajouter un établissement
+    </button>
+</div>
+
+{{-- Filtres --}}
+<div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+    <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div class="relative md:col-span-2">
+            <span class="absolute left-3 top-1/2 -translate-y-1/2
+                         material-symbols-rounded text-slate-400 text-[18px]">search</span>
+            <input type="text" name="search" value="{{ request('search') }}"
+                   placeholder="Rechercher (code, nom, région, contact...)"
+                   class="form-input pl-10">
+        </div>
+        <select name="type" class="form-input">
+            <option value="">Tous les types</option>
+            <option value="CFP" @selected(request('type') === 'CFP')>CFP</option>
+            <option value="LTP" @selected(request('type') === 'LTP')>LTP</option>
+            <option value="Lycee" @selected(request('type') === 'Lycee')>Lycée</option>
+            <option value="Autre" @selected(request('type') === 'Autre')>Autre</option>
+        </select>
+        <select name="statut" class="form-input">
+            <option value="">Tous les statuts</option>
+            <option value="actif" @selected(request('statut') === 'actif')>Actif</option>
+            <option value="inactif" @selected(request('statut') === 'inactif')>Inactif</option>
+            <option value="suspendu" @selected(request('statut') === 'suspendu')>Suspendu</option>
+        </select>
+        <div class="flex items-center gap-2">
+            <button type="submit" class="btn-primary">
+                <span class="material-symbols-rounded text-[18px]">filter_alt</span>
+                Filtrer
+            </button>
+            <a href="{{ route('admin.etablissements.index') }}" class="btn-secondary">
+                <span class="material-symbols-rounded text-[18px]">restart_alt</span>
+            </a>
+        </div>
+    </form>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <table class="table-modern">
+        <thead>
+            <tr>
+                <th>Code</th>
+                <th>Nom</th>
+                <th>Type</th>
+                <th>Région</th>
+                <th>Contact Responsable</th>
+                <th class="text-center">Formateurs</th>
+                <th>Statut</th>
+                <th class="text-right">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($etablissements ?? [] as $e)
+            <tr>
+                <td class="font-mono text-xs font-semibold">{{ $e->code }}</td>
+                <td class="font-semibold">
+                    <a href="{{ route('admin.etablissements.show', $e->id) }}"
+                       class="hover:text-brand-700 transition">
+                        {{ $e->nom }}
+                    </a>
+                </td>
+                <td><span class="badge-info">{{ $e->type }}</span></td>
+                <td>{{ $e->region ?? '—' }}</td>
+                <td class="text-xs">{{ $e->contact ?? '—' }}</td>
+                <td class="text-center">
+                    <a href="{{ route('admin.etablissements.show', $e->id) }}#formateurs"
+                       class="inline-flex items-center gap-1 px-3 py-1 rounded-full
+                              bg-brand-50 text-brand-700 text-xs font-semibold
+                              hover:bg-brand-100 transition cursor-pointer">
+                        <span class="material-symbols-rounded text-[14px]">groups</span>
+                        {{ $e->formateurs_count ?? 0 }}
+                    </a>
+                </td>
+                <td>
+                    @if(($e->statut ?? 'actif') === 'actif')
+                        <span class="badge-success">Actif</span>
+                    @elseif(($e->statut ?? '') === 'suspendu')
+                        <span class="badge-warning">Suspendu</span>
+                    @else
+                        <span class="badge-danger">Inactif</span>
+                    @endif
+                </td>
+                <td>
+                    <div class="flex items-center justify-end gap-1">
+                        <a href="{{ route('admin.etablissements.show', $e->id) }}"
+                           class="w-8 h-8 rounded-lg flex items-center justify-center
+                                  text-slate-500 hover:bg-brand-50 hover:text-brand-700 transition">
+                            <span class="material-symbols-rounded text-[18px]">visibility</span>
+                        </a>
+                        <a href="{{ route('admin.etablissements.edit', $e->id) }}"
+                           class="w-8 h-8 rounded-lg flex items-center justify-center
+                                  text-slate-500 hover:bg-brand-50 hover:text-brand-700 transition">
+                            <span class="material-symbols-rounded text-[18px]">edit</span>
+                        </a>
+                        <form action="{{ route('admin.etablissements.destroy', $e->id) }}"
+                              method="POST" class="inline" onsubmit="return confirm('Supprimer ?')">
+                            @csrf @method('DELETE')
+                            <button class="w-8 h-8 rounded-lg flex items-center justify-center
+                                           text-slate-500 hover:bg-red-50 hover:text-red-600 transition">
+                                <span class="material-symbols-rounded text-[18px]">delete</span>
+                            </button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            @empty
+            <tr>
+                <td colspan="8" class="text-center py-16">
+                    <span class="material-symbols-rounded text-5xl text-slate-300 block mb-2">
+                        apartment
+                    </span>
+                    <p class="text-slate-500">Aucun établissement trouvé</p>
+                </td>
+            </tr>
+            @endforelse
+        </tbody>
+    </table>
+    <div class="px-4 py-3 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500">
+        <span>Total : {{ $etablissements->total() ?? 0 }} établissements</span>
+        <div>{{ $etablissements->links() }}</div>
+    </div>
+</div>
+
+
+@include('admin.etablissements.partials.modal-create')
+@endsection

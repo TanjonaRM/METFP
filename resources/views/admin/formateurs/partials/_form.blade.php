@@ -1,0 +1,199 @@
+{{-- =========================================================== --}}
+{{-- Partial _form.blade.php - VERSION CORRIGÉE                  --}}
+{{-- [!]️  PAS de <form> ici (il est déjà dans index.blade.php)    --}}
+{{-- [!]️  PAS de @error (sera remplacé par du texte simple)       --}}
+{{-- =========================================================== --}}
+
+@php
+    $errs = $errors ?? new \Illuminate\Support\ViewErrorBag();
+@endphp
+
+@if ($errs->any())
+    <div class="mb-4 rounded-lg bg-red-50 border border-red-200 p-3">
+        <p class="text-sm font-semibold text-red-800 mb-1">[!]️ Erreurs :</p>
+        <ul class="text-xs text-red-700 list-disc list-inside space-y-0.5">
+            @foreach ($errs->all() as $err)
+                <li>{{ $err }}</li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
+<div class="space-y-4">
+
+    {{-- === Matricule + Statut === --}}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="matricule" class="block text-xs font-semibold text-slate-700 mb-1">
+                Matricule <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="matricule" id="matricule"
+                   value="{{ old('matricule') }}"
+                   placeholder="FORM-001" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                          @if($errs->has('matricule')) border-red-500 @endif text-black font-medium">
+            @if($errs->has('matricule'))
+                <p class="text-xs text-red-600 mt-1">{{ $errs->first('matricule') }}</p>
+            @endif
+        </div>
+
+        <div>
+            <label for="statut" class="block text-xs font-semibold text-slate-700 mb-1">
+                Statut <span class="text-red-500">*</span>
+            </label>
+            <select name="statut" id="statut" required
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                           focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <option value="actif"    @selected(old('statut', 'actif') === 'actif')>Actif</option>
+                <option value="inactif"  @selected(old('statut') === 'inactif')>Inactif</option>
+                <option value="suspendu" @selected(old('statut') === 'suspendu')>Suspendu</option>
+            </select>
+            <p class="text-[11px] text-slate-500 mt-1">Le statut sera propagé à toutes les tables liées.</p>
+        </div>
+    </div>
+
+    {{-- === Nom + Prénom === --}}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="nom" class="block text-xs font-semibold text-slate-700 mb-1">
+                Nom <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="nom" id="nom" value="{{ old('nom') }}" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            @if($errs->has('nom'))
+                <p class="text-xs text-red-600 mt-1">{{ $errs->first('nom') }}</p>
+            @endif
+        </div>
+
+        <div>
+            <label for="prenom" class="block text-xs font-semibold text-slate-700 mb-1">
+                Prénom <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="prenom" id="prenom" value="{{ old('prenom') }}" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            @if($errs->has('prenom'))
+                <p class="text-xs text-red-600 mt-1">{{ $errs->first('prenom') }}</p>
+            @endif
+        </div>
+    </div>
+
+    {{-- === Email + Téléphone === --}}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="email" class="block text-xs font-semibold text-slate-700 mb-1">
+                Email <span class="text-red-500">*</span>
+            </label>
+            <input type="email" name="email" id="email" value="{{ old('email') }}" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            @if($errs->has('email'))
+                <p class="text-xs text-red-600 mt-1">{{ $errs->first('email') }}</p>
+            @endif
+        </div>
+
+        <div>
+            <label for="telephone" class="block text-xs font-semibold text-slate-700 mb-1">Téléphone</label>
+            <input type="text" name="telephone" id="telephone" value="{{ old('telephone') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+    </div>
+
+    {{-- === Sexe + Date naissance + Lieu naissance === --}}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+            <label for="sexe" class="block text-xs font-semibold text-slate-700 mb-1">Sexe</label>
+            <select name="sexe" id="sexe"
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                           focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <option value="">- Sélectionner -</option>
+                <option value="Masculin" @selected(old('sexe') === 'Masculin')>Masculin</option>
+                <option value="Feminin"  @selected(old('sexe') === 'Feminin')>Féminin</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="date_naissance" class="block text-xs font-semibold text-slate-700 mb-1">Date de naissance</label>
+            <input type="date" name="date_naissance" id="date_naissance"
+                   value="{{ old('date_naissance') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div>
+            <label for="lieu_naissance" class="block text-xs font-semibold text-slate-700 mb-1">Lieu de naissance</label>
+            <input type="text" name="lieu_naissance" id="lieu_naissance"
+                   value="{{ old('lieu_naissance') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+    </div>
+
+    {{-- === CIN + Grade + Date recrutement === --}}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+            <label for="cin" class="block text-xs font-semibold text-slate-700 mb-1">CIN</label>
+            <input type="text" name="cin" id="cin" value="{{ old('cin') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div>
+            <label for="grade" class="block text-xs font-semibold text-slate-700 mb-1">
+                Grade <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="grade" id="grade" value="{{ old('grade') }}" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+            @if($errs->has('grade'))
+                <p class="text-xs text-red-600 mt-1">{{ $errs->first('grade') }}</p>
+            @endif
+        </div>
+
+        <div>
+            <label for="date_recrutement" class="block text-xs font-semibold text-slate-700 mb-1">Date de recrutement</label>
+            <input type="date" name="date_recrutement" id="date_recrutement"
+                   value="{{ old('date_recrutement') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+    </div>
+
+    {{-- === Établissement + Filière === --}}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="etablissement_id" class="block text-xs font-semibold text-slate-700 mb-1">Établissement</label>
+            <select name="etablissement_id" id="etablissement_id"
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                           focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <option value="">- Aucun -</option>
+                @foreach($etablissements ?? [] as $e)
+                    <option value="{{ $e->id }}" @selected(old('etablissement_id') == $e->id)>{{ $e->nom }}</option>
+                @endforeach
+            </select>
+        </div>
+
+        <div>
+            <label for="filiere_id" class="block text-xs font-semibold text-slate-700 mb-1">Filière</label>
+            <select name="filiere_id" id="filiere_id"
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                           focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <option value="">- Aucune -</option>
+                @foreach($filieres ?? [] as $f)
+                    <option value="{{ $f->id }}" @selected(old('filiere_id') == $f->id)>{{ $f->libelle }}</option>
+                @endforeach
+            </select>
+        </div>
+    </div>
+
+    {{-- === Adresse === --}}
+    <div>
+        <label for="adresse" class="block text-xs font-semibold text-slate-700 mb-1">Adresse</label>
+        <textarea name="adresse" id="adresse" rows="2"
+                  class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                         focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">{{ old('adresse') }}</textarea>
+    </div>
+</div>

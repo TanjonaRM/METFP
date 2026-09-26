@@ -1,0 +1,665 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class InstallLoginEditorial extends Command
+{
+    protected $signature = 'project:install-login-editorial
+                            {--backup : Sauvegarder les fichiers existants (.bak)}
+                            {--force : Écraser sans confirmation}';
+
+    protected $description = 'Installe les pages login/register admin et formateur (style Editorial)';
+
+    public function handle(): int
+    {
+        $this->info("✨ Installation des pages d'authentification (style Editorial)");
+        $this->newLine();
+
+        if (!$this->option('force') && !$this->confirm('Remplacer les vues login/register ?', true)) {
+            $this->warn('Annulé.');
+            return self::FAILURE;
+        }
+
+        $files = $this->getFiles();
+        $count = 0;
+
+        foreach ($files as $path => $content) {
+            $fullPath = base_path($path);
+            $dir = dirname($fullPath);
+
+            if (!File::exists($dir)) {
+                File::makeDirectory($dir, 0755, true);
+            }
+
+            if ($this->option('backup') && File::exists($fullPath)) {
+                $backupPath = $fullPath . '.bak.' . date('Y-m-d_H-i-s');
+                File::copy($fullPath, $backupPath);
+                $this->line("  [SAVE] Backup : " . basename($backupPath));
+            }
+
+            File::put($fullPath, $content);
+            $size = round(strlen($content) / 1024, 2);
+            $this->line("  [OK] {$path} ({$size} Ko)");
+            $count++;
+        }
+
+        $this->newLine();
+        $this->info("[CLEAN] Nettoyage des caches...");
+        $this->call('view:clear');
+        $this->call('cache:clear');
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS : {$count} fichier(s) installé(s)");
+        $this->info("-> Ouvrez http://localhost:8000/admin/login");
+
+        return self::SUCCESS;
+    }
+
+    protected function getFiles(): array
+    {
+        return [
+            // Layout guest réutilisé (déjà installé par project:install-home-editorial)
+            'resources/views/layouts/guest.blade.php'      => $this->getGuestLayout(),
+
+            // Admin
+            'resources/views/auth/admin/login.blade.php'   => $this->getAdminLogin(),
+
+            // Formateur (même style)
+            'resources/views/auth/formateur/login.blade.php' => $this->getFormateurLogin(),
+        ];
+    }
+
+    // ============================================================
+    // LAYOUT GUEST (commun)
+    // ============================================================
+    protected function getGuestLayout(): string
+    {
+        return <<<'BLADE'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>@yield('title', 'SGFORMATEURS')</title>
+
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+
+    <style>
+        * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+        html { scroll-behavior: smooth; }
+        body { background: #fafafa; color: #18181b; }
+        .material-symbols-rounded {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            line-height: 1;
+            vertical-align: middle;
+        }
+        ::selection { background: #10b981; color: #ffffff; }
+
+        .rule-emerald {
+            width: 48px;
+            height: 2px;
+            background: #059669;
+            border-radius: 2px;
+        }
+
+        .label-caps {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #71717a;
+        }
+
+        /* Inputs éditoriaux */
+        .input-editorial {
+            width: 100%;
+            padding: 14px 16px;
+            font-size: 14px;
+            color: #18181b;
+            background: #ffffff;
+            border: 1.5px solid #e4e4e7;
+            border-radius: 10px;
+            outline: none;
+            transition: all 0.15s ease;
+            font-family: inherit;
+        }
+        .input-editorial::placeholder { color: #a1a1aa; }
+        .input-editorial:hover { border-color: #d4d4d8; }
+        .input-editorial:focus {
+            border-color: #059669;
+            box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.10);
+        }
+    </style>
+</head>
+<body class="font-sans antialiased">
+    @yield('content')
+</body>
+</html>
+BLADE;
+    }
+
+    // ============================================================
+    // LOGIN ADMIN - Style Editorial
+    // ============================================================
+    protected function getAdminLogin(): string
+    {
+        return <<<'BLADE'
+@extends('layouts.guest')
+
+@section('title', 'Connexion Administrateur')
+
+@section('content')
+
+<div class="min-h-screen flex bg-zinc-50">
+
+    {{-- ============================================================
+         COLONNE GAUCHE : Formulaire (éditorial)
+         ============================================================ --}}
+    <div class="flex-1 flex flex-col">
+
+        {{-- Barre décorative verte --}}
+        <div class="h-[3px] bg-emerald-600"></div>
+
+        {{-- Header minimal --}}
+        <header class="border-b border-zinc-200">
+            <div class="px-6 lg:px-12 h-16 flex items-center justify-between">
+
+                <a href="{{ route('home') }}" class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center">
+                        <span class="material-symbols-rounded text-white text-[18px]"
+                              style="font-variation-settings: 'FILL' 1;">school</span>
+                    </div>
+                    <span class="font-bold text-zinc-900 text-[15px] tracking-tight">
+                        SGFORMATEURS
+                    </span>
+                </a>
+
+                <a href="{{ route('home') }}"
+                   class="inline-flex items-center gap-1.5 text-[12px] font-semibold
+                          text-zinc-500 hover:text-emerald-600 transition">
+                    <span class="material-symbols-rounded text-[16px]">arrow_back</span>
+                    Retour à l'accueil
+                </a>
+            </div>
+        </header>
+
+        {{-- Formulaire centré --}}
+        <div class="flex-1 flex items-center justify-center px-6 py-12">
+            <div class="w-full max-w-md">
+
+                {{-- Label + Titre --}}
+                <div class="label-caps">Espace administrateur</div>
+                <div class="rule-emerald mt-3 mb-6"></div>
+
+                <h1 class="font-display text-4xl lg:text-5xl font-bold text-zinc-900
+                           leading-[1.05] tracking-tight">
+                    Connexion.
+                </h1>
+
+                <p class="text-[14px] text-zinc-500 mt-4 leading-relaxed">
+                    Accédez au tableau de bord pour gérer les formateurs,
+                    établissements et filières.
+                </p>
+
+                {{-- Erreurs --}}
+                @if ($errors->any())
+                    <div class="mt-8 flex items-start gap-3 p-4 rounded-xl
+                                bg-red-50 border border-red-200">
+                        <span class="material-symbols-rounded text-red-600 text-[20px] shrink-0 mt-0.5">
+                            error
+                        </span>
+                        <div class="text-[13px] text-red-800 leading-relaxed">
+                            @foreach ($errors->all() as $error)
+                                <div>{{ $error }}</div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                {{-- Statut --}}
+                @if (session('status'))
+                    <div class="mt-8 flex items-start gap-3 p-4 rounded-xl
+                                bg-emerald-50 border border-emerald-200">
+                        <span class="material-symbols-rounded text-emerald-600 text-[20px] shrink-0 mt-0.5">
+                            check_circle
+                        </span>
+                        <div class="text-[13px] text-emerald-800 leading-relaxed">
+                            {{ session('status') }}
+                        </div>
+                    </div>
+                @endif
+
+                {{-- Formulaire --}}
+                <form action="{{ route('admin.login') }}" method="POST" class="mt-10 space-y-5">
+                    @csrf
+
+                    {{-- Email --}}
+                    <div>
+                        <label for="email" class="label-caps block mb-2">Email</label>
+                        <input type="email"
+                               name="email"
+                               id="email"
+                               value="{{ old('email') }}"
+                               placeholder="admin@sgformateurs.mg"
+                               required
+                               autofocus
+                               autocomplete="email"
+                               class="input-editorial">
+                    </div>
+
+                    {{-- Mot de passe --}}
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label for="password" class="label-caps">Mot de passe</label>
+                            <a href="{{ route('admin.password.request') }}"
+                               class="text-[11px] font-semibold text-zinc-500
+                                      hover:text-emerald-600 transition">
+                                Oublié ?
+                            </a>
+                        </div>
+                        <div class="relative">
+                            <input type="password"
+                                   name="password"
+                                   id="password"
+                                   placeholder="********"
+                                   required
+                                   autocomplete="current-password"
+                                   class="input-editorial pr-12">
+                            <button type="button"
+                                    onclick="togglePassword()"
+                                    class="absolute right-3.5 top-1/2 -translate-y-1/2
+                                           text-zinc-400 hover:text-emerald-600
+                                           transition p-1">
+                                <span class="material-symbols-rounded text-[20px]"
+                                      id="toggleIcon">visibility</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {{-- Se souvenir --}}
+                    <div class="flex items-center justify-between pt-1">
+                        <label class="inline-flex items-center gap-2.5 cursor-pointer select-none">
+                            <input type="checkbox"
+                                   name="remember"
+                                   class="w-4 h-4 rounded border-zinc-300 text-emerald-600
+                                          focus:ring-2 focus:ring-emerald-500/20
+                                          focus:ring-offset-0">
+                            <span class="text-[13px] text-zinc-600">Se souvenir de moi</span>
+                        </label>
+                    </div>
+
+                    {{-- Submit --}}
+                    <button type="submit"
+                            class="group w-full inline-flex items-center justify-center gap-2
+                                   px-6 py-3.5 rounded-xl
+                                   bg-zinc-900 text-white
+                                   text-[14px] font-semibold
+                                   hover:bg-black transition-all
+                                   mt-2">
+                        Se connecter
+                        <span class="material-symbols-rounded text-[18px]
+                                     group-hover:translate-x-1 transition-transform">
+                            arrow_forward
+                        </span>
+                    </button>
+                </form>
+
+                {{-- Pied de formulaire --}}
+                <div class="mt-10 pt-6 border-t border-zinc-200 flex items-center justify-between">
+                    <p class="text-[12px] text-zinc-500">
+                        Pas de compte ?
+                        <a href="{{ route('formateur.register') }}"
+                           class="font-semibold text-emerald-600 hover:text-emerald-700">
+                            S'inscrire
+                        </a>
+                    </p>
+                    <a href="{{ route('formateur.login') }}"
+                       class="inline-flex items-center gap-1 text-[12px] font-semibold
+                              text-zinc-500 hover:text-emerald-600 transition">
+                        Espace formateur
+                        <span class="material-symbols-rounded text-[14px]">arrow_outward</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- ============================================================
+         COLONNE DROITE : Image de fond (cachée sur mobile)
+         ============================================================ --}}
+    <div class="hidden lg:flex lg:w-[45%] relative overflow-hidden">
+
+        {{-- Image --}}
+        <img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1600&q=80"
+             alt="Salle de formation"
+             class="absolute inset-0 w-full h-full object-cover object-center">
+
+        {{-- Overlay vert émeraude --}}
+        <div class="absolute inset-0 bg-gradient-to-br
+                    from-emerald-900/85 via-emerald-800/75 to-zinc-900/85"></div>
+
+        {{-- Grille subtile --}}
+        <div class="absolute inset-0 opacity-[0.08]"
+             style="background-image:
+                    linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px);
+                    background-size: 60px 60px;"></div>
+
+        {{-- Contenu --}}
+        <div class="relative z-10 flex flex-col justify-between p-12 text-white w-full">
+
+            {{-- Top --}}
+            <div class="flex items-center gap-2 text-[11px] font-bold
+                        tracking-[0.14em] uppercase text-emerald-200">
+                <span class="w-6 h-px bg-emerald-300"></span>
+                METFP · Madagascar
+            </div>
+
+            {{-- Citation centrale --}}
+            <div>
+                <div class="rule-emerald !bg-emerald-300 mb-8"></div>
+
+                <p class="font-display text-3xl lg:text-4xl font-bold leading-[1.15]
+                          tracking-tight max-w-md">
+                    La gestion des formateurs,
+                    <span class="text-emerald-300">simplifiée.</span>
+                </p>
+
+                <p class="text-[14px] text-emerald-100/80 mt-6 max-w-sm leading-relaxed">
+                    Une plateforme centralisée pour piloter l'ensemble
+                    du réseau de formation professionnelle.
+                </p>
+            </div>
+
+            {{-- Bas : stats discrètes --}}
+            <div class="flex items-center gap-6 pt-6 border-t border-white/15">
+                <div>
+                    <div class="font-display text-2xl font-bold text-white">14+</div>
+                    <div class="text-[10px] text-emerald-200 uppercase tracking-widest mt-1">
+                        Établissements
+                    </div>
+                </div>
+                <div class="w-px h-8 bg-white/20"></div>
+                <div>
+                    <div class="font-display text-2xl font-bold text-white">80+</div>
+                    <div class="text-[10px] text-emerald-200 uppercase tracking-widest mt-1">
+                        Filières
+                    </div>
+                </div>
+                <div class="w-px h-8 bg-white/20"></div>
+                <div>
+                    <div class="font-display text-2xl font-bold text-white">5</div>
+                    <div class="text-[10px] text-emerald-200 uppercase tracking-widest mt-1">
+                        Niveaux
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function togglePassword() {
+        const input = document.getElementById('password');
+        const icon = document.getElementById('toggleIcon');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.textContent = 'visibility_off';
+        } else {
+            input.type = 'password';
+            icon.textContent = 'visibility';
+        }
+    }
+</script>
+
+@endsection
+BLADE;
+    }
+
+    // ============================================================
+    // LOGIN FORMATEUR - Même style
+    // ============================================================
+    protected function getFormateurLogin(): string
+    {
+        return <<<'BLADE'
+@extends('layouts.guest')
+
+@section('title', 'Connexion Formateur')
+
+@section('content')
+
+<div class="min-h-screen flex bg-zinc-50">
+
+    {{-- ============================================================
+         COLONNE GAUCHE : Formulaire
+         ============================================================ --}}
+    <div class="flex-1 flex flex-col">
+
+        <div class="h-[3px] bg-emerald-600"></div>
+
+        <header class="border-b border-zinc-200">
+            <div class="px-6 lg:px-12 h-16 flex items-center justify-between">
+
+                <a href="{{ route('home') }}" class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center">
+                        <span class="material-symbols-rounded text-white text-[18px]"
+                              style="font-variation-settings: 'FILL' 1;">school</span>
+                    </div>
+                    <span class="font-bold text-zinc-900 text-[15px] tracking-tight">
+                        SGFORMATEURS
+                    </span>
+                </a>
+
+                <a href="{{ route('home') }}"
+                   class="inline-flex items-center gap-1.5 text-[12px] font-semibold
+                          text-zinc-500 hover:text-emerald-600 transition">
+                    <span class="material-symbols-rounded text-[16px]">arrow_back</span>
+                    Retour à l'accueil
+                </a>
+            </div>
+        </header>
+
+        <div class="flex-1 flex items-center justify-center px-6 py-12">
+            <div class="w-full max-w-md">
+
+                <div class="label-caps">Espace formateur</div>
+                <div class="rule-emerald mt-3 mb-6"></div>
+
+                <h1 class="font-display text-4xl lg:text-5xl font-bold text-zinc-900
+                           leading-[1.05] tracking-tight">
+                    Connexion.
+                </h1>
+
+                <p class="text-[14px] text-zinc-500 mt-4 leading-relaxed">
+                    Accédez à vos affectations, sessions et à votre profil formateur.
+                </p>
+
+                @if ($errors->any())
+                    <div class="mt-8 flex items-start gap-3 p-4 rounded-xl
+                                bg-red-50 border border-red-200">
+                        <span class="material-symbols-rounded text-red-600 text-[20px] shrink-0 mt-0.5">
+                            error
+                        </span>
+                        <div class="text-[13px] text-red-800 leading-relaxed">
+                            @foreach ($errors->all() as $error)
+                                <div>{{ $error }}</div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                @if (session('status'))
+                    <div class="mt-8 flex items-start gap-3 p-4 rounded-xl
+                                bg-emerald-50 border border-emerald-200">
+                        <span class="material-symbols-rounded text-emerald-600 text-[20px] shrink-0 mt-0.5">
+                            check_circle
+                        </span>
+                        <div class="text-[13px] text-emerald-800 leading-relaxed">
+                            {{ session('status') }}
+                        </div>
+                    </div>
+                @endif
+
+                <form action="{{ route('formateur.login') }}" method="POST" class="mt-10 space-y-5">
+                    @csrf
+
+                    <div>
+                        <label for="email" class="label-caps block mb-2">Email</label>
+                        <input type="email"
+                               name="email"
+                               id="email"
+                               value="{{ old('email') }}"
+                               placeholder="votre.email@metfp.mg"
+                               required
+                               autofocus
+                               autocomplete="email"
+                               class="input-editorial">
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label for="password" class="label-caps">Mot de passe</label>
+                            <a href="{{ route('formateur.password.request') }}"
+                               class="text-[11px] font-semibold text-zinc-500
+                                      hover:text-emerald-600 transition">
+                                Oublié ?
+                            </a>
+                        </div>
+                        <div class="relative">
+                            <input type="password"
+                                   name="password"
+                                   id="password"
+                                   placeholder="********"
+                                   required
+                                   autocomplete="current-password"
+                                   class="input-editorial pr-12">
+                            <button type="button"
+                                    onclick="togglePassword()"
+                                    class="absolute right-3.5 top-1/2 -translate-y-1/2
+                                           text-zinc-400 hover:text-emerald-600
+                                           transition p-1">
+                                <span class="material-symbols-rounded text-[20px]"
+                                      id="toggleIcon">visibility</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-1">
+                        <label class="inline-flex items-center gap-2.5 cursor-pointer select-none">
+                            <input type="checkbox"
+                                   name="remember"
+                                   class="w-4 h-4 rounded border-zinc-300 text-emerald-600
+                                          focus:ring-2 focus:ring-emerald-500/20
+                                          focus:ring-offset-0">
+                            <span class="text-[13px] text-zinc-600">Se souvenir de moi</span>
+                        </label>
+                    </div>
+
+                    <button type="submit"
+                            class="group w-full inline-flex items-center justify-center gap-2
+                                   px-6 py-3.5 rounded-xl
+                                   bg-emerald-600 text-white
+                                   text-[14px] font-semibold
+                                   hover:bg-emerald-700 transition-all
+                                   mt-2">
+                        Se connecter
+                        <span class="material-symbols-rounded text-[18px]
+                                     group-hover:translate-x-1 transition-transform">
+                            arrow_forward
+                        </span>
+                    </button>
+                </form>
+
+                <div class="mt-10 pt-6 border-t border-zinc-200 flex items-center justify-between">
+                    <p class="text-[12px] text-zinc-500">
+                        Pas de compte ?
+                        <a href="{{ route('formateur.register') }}"
+                           class="font-semibold text-emerald-600 hover:text-emerald-700">
+                            S'inscrire
+                        </a>
+                    </p>
+                    <a href="{{ route('admin.login') }}"
+                       class="inline-flex items-center gap-1 text-[12px] font-semibold
+                              text-zinc-500 hover:text-emerald-600 transition">
+                        Espace admin
+                        <span class="material-symbols-rounded text-[14px]">arrow_outward</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Colonne droite : image --}}
+    <div class="hidden lg:flex lg:w-[45%] relative overflow-hidden">
+
+        <img src="https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1600&q=80"
+             alt="Formation"
+             class="absolute inset-0 w-full h-full object-cover object-center">
+
+        <div class="absolute inset-0 bg-gradient-to-br
+                    from-emerald-900/85 via-emerald-800/75 to-zinc-900/85"></div>
+
+        <div class="absolute inset-0 opacity-[0.08]"
+             style="background-image:
+                    linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px);
+                    background-size: 60px 60px;"></div>
+
+        <div class="relative z-10 flex flex-col justify-between p-12 text-white w-full">
+
+            <div class="flex items-center gap-2 text-[11px] font-bold
+                        tracking-[0.14em] uppercase text-emerald-200">
+                <span class="w-6 h-px bg-emerald-300"></span>
+                METFP · Madagascar
+            </div>
+
+            <div>
+                <div class="rule-emerald !bg-emerald-300 mb-8"></div>
+
+                <p class="font-display text-3xl lg:text-4xl font-bold leading-[1.15]
+                          tracking-tight max-w-md">
+                    Votre espace formateur,
+                    <span class="text-emerald-300">en un clic.</span>
+                </p>
+
+                <p class="text-[14px] text-emerald-100/80 mt-6 max-w-sm leading-relaxed">
+                    Consultez vos affectations, sessions et gérez votre profil.
+                </p>
+            </div>
+
+            <div class="flex items-center gap-3 pt-6 border-t border-white/15
+                        text-[11px] text-emerald-200 uppercase tracking-widest">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse"></span>
+                Système opérationnel
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function togglePassword() {
+        const input = document.getElementById('password');
+        const icon = document.getElementById('toggleIcon');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.textContent = 'visibility_off';
+        } else {
+            input.type = 'password';
+            icon.textContent = 'visibility';
+        }
+    }
+</script>
+
+@endsection
+BLADE;
+    }
+}

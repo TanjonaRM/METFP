@@ -1,0 +1,348 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class FixEtablissementModalErrors extends Command
+{
+    protected $signature = 'fix:etablissement-modal-errors';
+    protected $description = 'Corrige l\'affichage des erreurs dans le modal Établissement';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [TOOL] MODAL ÉTABLISSEMENT - GESTION DES ERREURS            |');
+        $this->line('+==========================================================+');
+        $this->line('');
+
+        // ===============================================
+        // 1. Corriger le JS dans modal-create.blade.php
+        // ===============================================
+        $this->line('> 1/2 - JS du modal (modal-create.blade.php)');
+
+        $modalPath = resource_path('views/admin/etablissements/partials/modal-create.blade.php');
+
+        if (!File::exists($modalPath)) {
+            $this->error("[X] Fichier introuvable : {$modalPath}");
+            return self::FAILURE;
+        }
+
+        File::copy($modalPath, $modalPath . '.bak.' . date('Y-m-d_His'));
+        $this->line('   [SAVE] Backup créé');
+
+        $content = File::get($modalPath);
+
+        // Trouver le bloc <script> et le remplacer
+        $newScript = <<<'BLADE'
+<script>
+    function openEtablissementModal() {
+        const modal = document.getElementById('modalCreateEtablissement');
+        if (!modal) return;
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+
+        fetch('{{ route("admin.etablissements.create") }}', {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json'
+            },
+            credentials: 'same-origin'
+        })
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('EtablissementFormContent').innerHTML = data.html;
+        })
+        .catch(err => {
+            console.error('[X] Erreur :', err);
+            document.getElementById('EtablissementFormContent').innerHTML =
+                '<div class="text-center py-12 text-red-500">Erreur : ' + err.message + '</div>';
+        });
+    }
+
+    function closeEtablissementModal() {
+        const modal = document.getElementById('modalCreateEtablissement');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        document.body.style.overflow = '';
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeEtablissementModal();
+    });
+
+    // =======================================================
+    // SOUMISSION AJAX avec gestion des erreurs
+    // =======================================================
+    document.addEventListener('submit', function(e) {
+        if (e.target.id !== 'formEtablissement') return;
+        e.preventDefault();
+
+        const form = e.target;
+        const btn = document.getElementById('submitEtablissementBtn');
+        const content = document.getElementById('EtablissementFormContent');
+
+        // Enlever les anciennes erreurs
+        const oldErrors = content.querySelector('.alert-errors-modal');
+        if (oldErrors) oldErrors.remove();
+
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-rounded text-[18px] animate-spin">progress_activity</span> Enregistrement...';
+
+        fetch(form.action, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}'
+            },
+            body: new FormData(form),
+            credentials: 'same-origin'
+        })
+        .then(async (r) => {
+            const contentType = r.headers.get('content-type') || '';
+
+            // Si réponse JSON
+            if (contentType.includes('application/json')) {
+                const data = await r.json();
+                return { ok: r.ok, status: r.status, data };
+            }
+
+            // Si réponse HTML (redirection Laravel avec erreurs)
+            const html = await r.text();
+
+            // Détecter les erreurs dans le HTML (blade session errors)
+            return { ok: r.ok, status: r.status, html };
+        })
+        .then(result => {
+            // --- CAS 1 : SUCCÈS ---
+            if (result.data && (result.data.success || result.data.redirect)) {
+                window.location.href = result.data.redirect || window.location.href;
+                return;
+            }
+
+            // --- CAS 2 : JSON avec erreurs ---
+            if (result.data && result.data.errors) {
+                showErrors(result.data.errors);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                return;
+            }
+
+            // --- CAS 3 : Redirection (back with errors) ---
+            // Laravel a renvoyé une page HTML (probablement avec les erreurs de session)
+            // On va chercher les erreurs dans les cookies/session via un endpoint dédié
+            // OU on recharge simplement la page pour voir les erreurs
+
+            if (result.status === 302 || result.status === 200) {
+                // Essayer de récupérer les erreurs depuis la nouvelle page
+                fetch(window.location.href, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(() => {
+                    // Recharger la page pour voir les erreurs
+                    window.location.reload();
+                });
+                return;
+            }
+
+            // --- CAS 4 : Erreur inconnue ---
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            alert('Erreur inconnue. Vérifiez la console.');
+            console.error('Réponse :', result);
+        })
+        .catch(err => {
+            console.error('[X] Erreur :', err);
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            alert('Erreur : ' + err.message);
+        });
+    });
+
+    function showErrors(errors) {
+        const content = document.getElementById('EtablissementFormContent');
+        const old = content.querySelector('.alert-errors-modal');
+        if (old) old.remove();
+
+        const div = document.createElement('div');
+        div.className = 'alert-errors-modal mb-4 rounded-lg bg-red-50 border border-red-200 p-3';
+
+        let html = '<p class="text-sm font-semibold text-red-800 mb-2">[!]️ Erreurs :</p><ul class="text-xs text-red-700 list-disc list-inside space-y-0.5">';
+        Object.values(errors).forEach(errArray => {
+            errArray.forEach(msg => {
+                html += '<li>' + msg + '</li>';
+            });
+        });
+        html += '</ul>';
+        div.innerHTML = html;
+        content.insertBefore(div, content.firstChild);
+        content.scrollTop = 0;
+    }
+</script>
+BLADE;
+
+        // Remplacer le <script> existant
+        $pattern = '/<script>.*?openEtablissementModal.*?<\/script>/s';
+        if (preg_match($pattern, $content)) {
+            $content = preg_replace($pattern, $newScript, $content, 1);
+            File::put($modalPath, $content);
+            $this->info('   [OK] JS du modal mis à jour');
+        } else {
+            $this->warn('   [!]️  Script existant introuvable - recherche alternative');
+
+            // Chercher juste la fin du fichier
+            $pos = strrpos($content, '</script>');
+            if ($pos !== false) {
+                // Insérer avant la fin
+                $content = substr($content, 0, $pos + 9) . "\n" . $newScript;
+                File::put($modalPath, $content);
+                $this->info('   [OK] Script ajouté');
+            }
+        }
+
+        // ===============================================
+        // 2. Corriger le Controller pour retourner JSON en AJAX
+        // ===============================================
+        $this->line('');
+        $this->line('> 2/2 - Controller (retour JSON en AJAX)');
+
+        $ctrlPath = app_path('Http/Controllers/Admin/EtablissementController.php');
+
+        if (!File::exists($ctrlPath)) {
+            $this->error('   [X] Controller introuvable');
+            return self::FAILURE;
+        }
+
+        File::copy($ctrlPath, $ctrlPath . '.bak.' . date('Y-m-d_His'));
+        $this->line('   [SAVE] Backup créé');
+
+        $ctrlContent = File::get($ctrlPath);
+
+        // Remplacer la méthode store() pour retourner du JSON si AJAX
+        $newStore = <<<'PHP'
+    public function store(Request $request)
+    {
+        $isAjax = $request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest';
+
+        // [AJAX] Vérifier si un établissement avec le même NOM existe déjà
+        $nomExistant = \Infrastructure\Persistence\Eloquent\Models\EtablissementModel::where('nom', $request->nom)->first();
+
+        if ($nomExistant) {
+            $message = "Cet établissement existe déjà : \"{$nomExistant->nom}\" (code : {$nomExistant->code})";
+
+            if ($isAjax) {
+                return response()->json([
+                    'success' => false,
+                    'errors'  => ['nom' => [$message]],
+                ], 422);
+            }
+
+            return back()->withInput()->withErrors(['nom' => $message]);
+        }
+
+        try {
+            $validated = $request->validate([
+                'code'                => 'nullable|string|unique:etablissements,code',
+                'nom'                 => 'required|string|max:150',
+                'type'                => 'required|in:CFP,LTP,Lycee,Autre',
+                'region'              => 'nullable|string|max:100',
+                'adresse'             => 'nullable|string|max:255',
+                'contact_responsable' => 'nullable|string|max:150',
+                'email'               => 'nullable|email|max:150',
+                'statut'              => 'required|in:actif,inactif,suspendu',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($isAjax) {
+                return response()->json([
+                    'success' => false,
+                    'errors'  => $e->errors(),
+                ], 422);
+            }
+            throw $e;
+        }
+
+        // [AJAX] Auto-génération du code : TYPE-PREMIER-MOT
+        if (empty($validated['code'])) {
+            $type = strtoupper(trim($validated['type'] ?? 'ETB'));
+            $nom  = trim($validated['nom'] ?? '');
+            $nom  = preg_replace('/^' . preg_quote($type, '/') . '\s+/i', '', $nom);
+            $parts = preg_split('/[\s\-]+/', $nom);
+            $mot   = strtoupper($parts[0] ?? 'X');
+            $validated['code'] = $type . '-' . $mot;
+        }
+
+        $etablissement = \Infrastructure\Persistence\Eloquent\Models\EtablissementModel::create($validated);
+
+        // Notification (non bloquante)
+        try {
+            if (class_exists(\App\Services\NotificationService::class)
+                && method_exists(\App\Services\NotificationService::class, 'etablissementCree')) {
+                \App\Services\NotificationService::etablissementCree($etablissement);
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('Notification échouée : ' . $e->getMessage());
+        }
+
+        // Réponse selon le type de requête
+        if ($isAjax) {
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Établissement créé avec succès.',
+                'redirect' => route('admin.etablissements.index'),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.etablissements.index')
+            ->with('success', 'Établissement créé avec succès.');
+    }
+PHP;
+
+        // Remplacer store()
+        $pattern = '/public function store\s*\([^)]*\)\s*\{.*?\n    \}/s';
+        if (preg_match($pattern, $ctrlContent)) {
+            $ctrlContent = preg_replace($pattern, $newStore, $ctrlContent, 1);
+            File::put($ctrlPath, $ctrlContent);
+            $this->info('   [OK] store() mis à jour');
+        } else {
+            $this->error('   [X] Pattern store() introuvable');
+            return self::FAILURE;
+        }
+
+        // Vérifier syntaxe
+        $output = [];
+        $rc = 0;
+        exec('php -l "' . $ctrlPath . '" 2>&1', $output, $rc);
+        if ($rc === 0) {
+            $this->info('   [OK] Syntaxe valide');
+        } else {
+            $this->error('   [X] Erreur syntaxe');
+            foreach ($output as $o) $this->line('      ' . $o);
+            return self::FAILURE;
+        }
+
+        // ===============================================
+        // Vider les caches
+        // ===============================================
+        $this->line('');
+        $this->line('> Vidage des caches');
+        $this->call('optimize:clear');
+        $this->call('view:clear');
+        $this->info('   [OK] Caches vidés');
+
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [SUCCESS] TERMINÉ                                              |');
+        $this->line('+==========================================================+');
+        $this->line('');
+        $this->line('-> Comportement :');
+        $this->line('   * Nom unique -> Création + redirection [OK]');
+        $this->line('   * Nom en double -> Message dans le modal (sans fermeture)');
+
+        return self::SUCCESS;
+    }
+}

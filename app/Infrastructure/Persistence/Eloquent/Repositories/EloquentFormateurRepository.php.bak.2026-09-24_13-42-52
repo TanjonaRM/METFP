@@ -1,0 +1,70 @@
+<?php
+
+namespace Infrastructure\Persistence\Eloquent\Repositories;
+
+use Domain\Formateurs\Entities\Formateur;
+use Domain\Formateurs\Ports\FormateurRepositoryInterface;
+use Infrastructure\Persistence\Eloquent\Models\FormateurModel;
+
+class EloquentFormateurRepository implements FormateurRepositoryInterface
+{
+    public function save(Formateur $formateur): Formateur
+    {
+        $model = $formateur->id
+            ? FormateurModel::findOrFail($formateur->id)
+            : new FormateurModel();
+
+        // ✅ Utiliser toArray() pour TOUS les champs
+        $model->fill($formateur->toArray());
+        $model->save();
+
+        return $this->toDomain($model);
+    }
+
+    public function findById(int $id): ?Formateur
+    {
+        $model = FormateurModel::find($id);
+        return $model ? $this->toDomain($model) : null;
+    }
+
+    public function findByMatricule(string $matricule): ?Formateur
+    {
+        $model = FormateurModel::where('matricule', $matricule)->first();
+        return $model ? $this->toDomain($model) : null;
+    }
+
+    public function findAll(): array
+    {
+        return FormateurModel::with('etablissement')->get()
+            ->map(fn($m) => $this->toDomain($m))
+            ->all();
+    }
+
+    public function delete(int $id): void
+    {
+        FormateurModel::findOrFail($id)->delete();
+    }
+
+    private function toDomain(FormateurModel $model): Formateur
+    {
+        return Formateur::fromArray([
+            'id'               => $model->id,
+            'matricule'        => $model->matricule,
+            'nom'              => $model->nom,
+            'prenom'           => $model->prenom,
+            'email'            => $model->email,
+            'telephone'        => $model->telephone,
+            'sexe'             => $model->sexe,
+            'date_naissance'   => $model->date_naissance?->format('Y-m-d'),
+            'lieu_naissance'   => $model->lieu_naissance,
+            'cin'              => $model->cin,
+            'adresse'          => $model->adresse,
+            'grade'            => $model->grade,
+            'date_recrutement' => $model->date_recrutement?->format('Y-m-d'),
+            'photo'            => $model->photo,
+            'etablissement_id' => $model->etablissement_id,
+            'filiere_id'       => $model->filiere_id,
+            'statut'           => $model->statut,
+        ]);
+    }
+}

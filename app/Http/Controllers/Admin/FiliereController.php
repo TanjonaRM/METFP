@@ -1,0 +1,112 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use Application\Filieres\DTOs\CreateFiliereDTO;
+use Application\Filieres\UseCases\CreateFiliereUseCase;
+use Illuminate\Http\Request;
+use Infrastructure\Persistence\Eloquent\Models\FiliereModel;
+
+class FiliereController extends Controller
+{
+    public function __construct(
+        private CreateFiliereUseCase $createUseCase,
+    ) {}
+
+    public function index()
+    {
+        $filieres = FiliereModel::with('options')
+            ->withCount('formateurs')
+            ->search(request('search'))
+            ->orderBy('libelle')
+            ->paginate(15)
+            ->withQueryString();
+
+        return view('admin.filieres.index', compact('filieres'));
+    }
+
+        public function create(Request $request)
+    {
+        // Pour les selects
+        $niveaux  = \Infrastructure\Persistence\Eloquent\Models\NiveauModel::orderBy('libelle')->get();
+        $secteurs = \Infrastructure\Persistence\Eloquent\Models\SecteurModel::orderBy('libelle')->get();
+
+        // Requête AJAX -> JSON
+        if ($request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+            $errors = session()->get('errors', new \Illuminate\Support\ViewErrorBag());
+
+            $html = view('admin.filieres.partials._form', [
+                'errors'    => $errors,
+                'niveaux'   => $niveaux,
+                'secteurs'  => $secteurs,
+            ])->render();
+
+            return response()->json(['html' => $html]);
+        }
+
+        return view('admin.filieres.create', compact('niveaux', 'secteurs'));
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'code'         => 'required|string|unique:filieres,code',
+            'libelle'      => 'required|string|max:200',
+            'description'  => 'nullable|string',
+            'options_text' => 'nullable|string',
+        ]);
+
+        $options = [];
+        if (!empty($validated['options_text'])) {
+            $options = array_filter(array_map('trim', explode("\n", $validated['options_text'])));
+        }
+
+        $validated['niveau_id']  = null;
+        $validated['secteur_id'] = null;
+
+        $dto = CreateFiliereDTO::fromArray($validated, $options);
+        $this->createUseCase->execute($dto);
+
+        return redirect()->route('admin.filieres.index')
+            ->with('success', 'Filière créée.');
+    }
+
+    public function show(int $id)
+    {
+        $filiere = FiliereModel::with(['options', 'formateurs.etablissement'])
+            ->withCount('formateurs')
+            ->findOrFail($id);
+
+        return view('admin.filieres.show', compact('filiere'));
+    }
+
+    public function edit(int $id)
+    {
+        $filiere = FiliereModel::with('options')->findOrFail($id);
+        return view('admin.filieres.edit', compact('filiere'));
+    }
+
+    public function update(Request $request, int $id)
+    {
+        $filiere = FiliereModel::findOrFail($id);
+
+        $validated = $request->validate([
+            'code'        => 'required|string|unique:filieres,code,' . $id,
+            'libelle'     => 'required|string|max:200',
+            'description' => 'nullable|string',
+        ]);
+
+        $filiere->update($validated);
+
+        return redirect()->route('admin.filieres.index')
+            ->with('success', 'Filière mise à jour.');
+    }
+
+    public function destroy(int $id)
+    {
+        FiliereModel::findOrFail($id)->delete();
+        return redirect()->route('admin.filieres.index')
+            ->with('success', 'Filière supprimée.');
+    }
+}

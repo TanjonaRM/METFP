@@ -1,0 +1,691 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Artisan;
+
+class RepairProject extends Command
+{
+    protected $signature = 'repair:project
+                            {--skip-backup : Ne pas créer de .bak}
+                            {--force : Écrase les fichiers existants}';
+
+    protected $description = 'Répare les controllers/vues cassés sans changer le design';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('╔════════════════════════════════════════════════════╗');
+        $this->line('║   🔧 RÉPARATION AUTOMATIQUE DU PROJET              ║');
+        $this->line('╚════════════════════════════════════════════════════╝');
+        $this->line('');
+
+        // ─────────────────────────────────────────────
+        // 1. Réparer FormateurController
+        // ─────────────────────────────────────────────
+        $this->line('▶ 1/6 — FormateurController');
+        $this->repairFormateurController();
+        $this->line('');
+
+        // ─────────────────────────────────────────────
+        // 2. Créer le partial _form.blade.php
+        // ─────────────────────────────────────────────
+        $this->line('▶ 2/6 — Partial _form.blade.php');
+        $this->createFormPartial();
+        $this->line('');
+
+        // ─────────────────────────────────────────────
+        // 3. Créer les vues create/edit/show
+        // ─────────────────────────────────────────────
+        $this->line('▶ 3/6 — Vues formateurs');
+        $this->createFormateurViews();
+        $this->line('');
+
+        // ─────────────────────────────────────────────
+        // 4. Ajouter les méthodes manquantes
+        // ─────────────────────────────────────────────
+        $this->line('▶ 4/6 — Méthodes manquantes');
+        $this->addMissingMethods();
+        $this->line('');
+
+        // ─────────────────────────────────────────────
+        // 5. Vider les caches
+        // ─────────────────────────────────────────────
+        $this->line('▶ 5/6 — Vidage des caches');
+        Artisan::call('optimize:clear');
+        Artisan::call('view:clear');
+        Artisan::call('route:clear');
+        Artisan::call('config:clear');
+        $this->info('✅ Caches vidés');
+        $this->line('');
+
+        // ─────────────────────────────────────────────
+        // 6. Test live
+        // ─────────────────────────────────────────────
+        $this->line('▶ 6/6 — Test live de la route AJAX');
+        $this->testAjaxRoute();
+        $this->line('');
+
+        $this->line('╔════════════════════════════════════════════════════╗');
+        $this->line('║              🎉 RÉPARATION TERMINÉE                ║');
+        $this->line('╚════════════════════════════════════════════════════╝');
+        $this->line('');
+        $this->line('👉 Testez : http://localhost:8000/admin/formateurs');
+        $this->line('   Ouvrez F12 → cliquez "Ajouter un formateur"');
+        $this->line('   Attendu : 🔵 Ouverture modal + 📦 Formulaire chargé');
+
+        return self::SUCCESS;
+    }
+
+    // ═════════════════════════════════════════════════
+    // 1. FORMATEUR CONTROLLER COMPLET
+    // ═════════════════════════════════════════════════
+    private function repairFormateurController(): void
+    {
+        $path = app_path('Http/Controllers/Admin/FormateurController.php');
+
+        // Backup
+        if (!$this->option('skip-backup') && File::exists($path)) {
+            $bak = $path . '.bak.' . date('Y-m-d_His');
+            File::copy($path, $bak);
+            $this->line("   💾 Backup : " . basename($bak));
+        }
+
+        File::put($path, $this->getFormateurControllerCode());
+        $this->info('✅ FormateurController réparé (9 méthodes)');
+    }
+
+    private function getFormateurControllerCode(): string
+    {
+        return <<<'PHP'
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Formateur\StoreFormateurRequest;
+use App\Http\Requests\Formateur\UpdateFormateurRequest;
+use Illuminate\Http\Request;
+use Infrastructure\Persistence\Eloquent\Models\EtablissementModel;
+use Infrastructure\Persistence\Eloquent\Models\FiliereModel;
+use Infrastructure\Persistence\Eloquent\Models\FormateurModel;
+use Infrastructure\Persistence\Eloquent\Models\HistoriqueFormateurModel;
+
+class FormateurController extends Controller
+{
+    // ═══════════════════════════════════════════════════════
+    // INDEX — liste des formateurs
+    // ═══════════════════════════════════════════════════════
+    public function index(Request $request)
+    {
+        $formateurs = FormateurModel::with(['etablissement', 'filiere'])
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $s = $request->search;
+                $q->where(function ($qq) use ($s) {
+                    $qq->where('nom', 'like', "%{$s}%")
+                       ->orWhere('prenom', 'like', "%{$s}%")
+                       ->orWhere('matricule', 'like', "%{$s}%");
+                });
+            })
+            ->when($request->filled('etablissement_id'), fn($q) => $q->where('etablissement_id', $request->etablissement_id))
+            ->when($request->filled('statut'), fn($q) => $q->where('statut', $request->statut))
+            ->orderBy('nom')
+            ->paginate(15)
+            ->withQueryString();
+
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+        $filieres       = FiliereModel::orderBy('libelle')->get();
+
+        return view('admin.formateurs.index', compact('formateurs', 'etablissements', 'filieres'));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // CREATE — formulaire (JSON si AJAX, sinon vue)
+    // ═══════════════════════════════════════════════════════
+    public function create(Request $request)
+    {
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+        $filieres       = FiliereModel::orderBy('libelle')->get();
+
+        // Requête AJAX → renvoyer JSON avec le HTML du formulaire
+        if ($request->ajax() || $request->wantsJson()) {
+            $html = view('admin.formateurs.partials._form', compact('etablissements', 'filieres'))->render();
+            return response()->json(['html' => $html]);
+        }
+
+        return view('admin.formateurs.create', compact('etablissements', 'filieres'));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // STORE — enregistrement
+    // ═══════════════════════════════════════════════════════
+    public function store(StoreFormateurRequest $request)
+    {
+        $data = $request->validated();
+
+        $formateur = FormateurModel::create($data);
+
+        // Historique
+        HistoriqueFormateurModel::create([
+            'formateur_id' => $formateur->id,
+            'action'       => 'creation',
+            'details'      => 'Formateur créé : ' . $formateur->nom . ' ' . $formateur->prenom,
+            'user_id'      => auth('admin')->id(),
+        ]);
+
+        // Réponse AJAX
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Formateur créé avec succès.',
+                'redirect' => route('admin.formateurs.index'),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.formateurs.index')
+            ->with('success', 'Formateur créé avec succès.');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // SHOW — détail
+    // ═══════════════════════════════════════════════════════
+    public function show(int $id)
+    {
+        $formateur = FormateurModel::with([
+            'etablissement',
+            'filiere',
+            'historiques',
+        ])->findOrFail($id);
+
+        return view('admin.formateurs.show', compact('formateur'));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // EDIT — formulaire d'édition
+    // ═══════════════════════════════════════════════════════
+    public function edit(int $id)
+    {
+        $formateur      = FormateurModel::findOrFail($id);
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+        $filieres       = FiliereModel::orderBy('libelle')->get();
+
+        return view('admin.formateurs.edit', compact('formateur', 'etablissements', 'filieres'));
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // UPDATE — mise à jour
+    // ═══════════════════════════════════════════════════════
+    public function update(UpdateFormateurRequest $request, int $id)
+    {
+        $formateur = FormateurModel::findOrFail($id);
+        $data      = $request->validated();
+
+        $formateur->update($data);
+
+        HistoriqueFormateurModel::create([
+            'formateur_id' => $formateur->id,
+            'action'       => 'modification',
+            'details'      => 'Formateur modifié : ' . $formateur->nom . ' ' . $formateur->prenom,
+            'user_id'      => auth('admin')->id(),
+        ]);
+
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Formateur mis à jour.',
+                'redirect' => route('admin.formateurs.index'),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.formateurs.index')
+            ->with('success', 'Formateur mis à jour.');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // DESTROY — suppression
+    // ═══════════════════════════════════════════════════════
+    public function destroy(int $id)
+    {
+        $formateur = FormateurModel::findOrFail($id);
+
+        HistoriqueFormateurModel::create([
+            'formateur_id' => $formateur->id,
+            'action'       => 'suppression',
+            'details'      => 'Formateur supprimé : ' . $formateur->nom . ' ' . $formateur->prenom,
+            'user_id'      => auth('admin')->id(),
+        ]);
+
+        $formateur->delete();
+
+        if (request()->ajax() || request()->wantsJson()) {
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Formateur supprimé.',
+                'redirect' => route('admin.formateurs.index'),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.formateurs.index')
+            ->with('success', 'Formateur supprimé.');
+    }
+}
+PHP;
+    }
+
+    // ═════════════════════════════════════════════════
+    // 2. PARTIAL _form.blade.php
+    // ═════════════════════════════════════════════════
+    private function createFormPartial(): void
+    {
+        $dir = resource_path('views/admin/formateurs/partials');
+        if (!File::exists($dir)) {
+            File::makeDirectory($dir, 0755, true);
+        }
+
+        $path = $dir . '/_form.blade.php';
+
+        if (File::exists($path) && !$this->option('force')) {
+            $this->warn('⏭️  Existe déjà (utilisez --force pour écraser)');
+            return;
+        }
+
+        File::put($path, $this->getFormPartialCode());
+        $this->info('✅ partials/_form.blade.php créé');
+    }
+
+    private function getFormPartialCode(): string
+    {
+        return <<<'BLADE'
+{{-- Formulaire Formateur — utilisé par create.blade.php ET le modal AJAX --}}
+
+@if ($errors->any())
+    <div class="mb-4 rounded-lg bg-red-50 border border-red-200 p-3">
+        <p class="text-sm font-semibold text-red-800 mb-1">⚠️ Erreurs :</p>
+        <ul class="text-xs text-red-700 list-disc list-inside space-y-0.5">
+            @foreach ($errors->all() as $err)
+                <li>{{ $err }}</li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
+<form method="POST"
+      action="{{ route('admin.formateurs.store') }}"
+      id="formateurForm"
+      class="space-y-4">
+    @csrf
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="matricule" class="block text-xs font-semibold text-slate-700 mb-1">
+                Matricule <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="matricule" id="matricule"
+                   value="{{ old('matricule') }}"
+                   placeholder="FORM-001" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                          @error('matricule') border-red-500 @enderror">
+            @error('matricule') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+        </div>
+
+        <div>
+            <label for="statut" class="block text-xs font-semibold text-slate-700 mb-1">
+                Statut <span class="text-red-500">*</span>
+            </label>
+            <select name="statut" id="statut" required
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                           focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <option value="actif"    @selected(old('statut', 'actif') === 'actif')>Actif</option>
+                <option value="inactif"  @selected(old('statut') === 'inactif')>Inactif</option>
+                <option value="suspendu" @selected(old('statut') === 'suspendu')>Suspendu</option>
+            </select>
+            <p class="text-[11px] text-slate-500 mt-1">Le statut sera propagé à toutes les tables liées.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="nom" class="block text-xs font-semibold text-slate-700 mb-1">
+                Nom <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="nom" id="nom" value="{{ old('nom') }}" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                          @error('nom') border-red-500 @enderror">
+            @error('nom') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+        </div>
+
+        <div>
+            <label for="prenom" class="block text-xs font-semibold text-slate-700 mb-1">
+                Prénom <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="prenom" id="prenom" value="{{ old('prenom') }}" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                          @error('prenom') border-red-500 @enderror">
+            @error('prenom') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="email" class="block text-xs font-semibold text-slate-700 mb-1">
+                Email <span class="text-red-500">*</span>
+            </label>
+            <input type="email" name="email" id="email" value="{{ old('email') }}" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                          @error('email') border-red-500 @enderror">
+            @error('email') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+        </div>
+
+        <div>
+            <label for="telephone" class="block text-xs font-semibold text-slate-700 mb-1">Téléphone</label>
+            <input type="text" name="telephone" id="telephone" value="{{ old('telephone') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+            <label for="sexe" class="block text-xs font-semibold text-slate-700 mb-1">Sexe</label>
+            <select name="sexe" id="sexe"
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                           focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <option value="">— Sélectionner —</option>
+                <option value="Masculin" @selected(old('sexe') === 'Masculin')>Masculin</option>
+                <option value="Feminin"  @selected(old('sexe') === 'Feminin')>Féminin</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="date_naissance" class="block text-xs font-semibold text-slate-700 mb-1">Date de naissance</label>
+            <input type="date" name="date_naissance" id="date_naissance"
+                   value="{{ old('date_naissance') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div>
+            <label for="lieu_naissance" class="block text-xs font-semibold text-slate-700 mb-1">Lieu de naissance</label>
+            <input type="text" name="lieu_naissance" id="lieu_naissance"
+                   value="{{ old('lieu_naissance') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+            <label for="cin" class="block text-xs font-semibold text-slate-700 mb-1">CIN</label>
+            <input type="text" name="cin" id="cin" value="{{ old('cin') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div>
+            <label for="grade" class="block text-xs font-semibold text-slate-700 mb-1">
+                Grade <span class="text-red-500">*</span>
+            </label>
+            <input type="text" name="grade" id="grade" value="{{ old('grade') }}" required
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                          @error('grade') border-red-500 @enderror">
+            @error('grade') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+        </div>
+
+        <div>
+            <label for="date_recrutement" class="block text-xs font-semibold text-slate-700 mb-1">Date de recrutement</label>
+            <input type="date" name="date_recrutement" id="date_recrutement"
+                   value="{{ old('date_recrutement') }}"
+                   class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                          focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label for="etablissement_id" class="block text-xs font-semibold text-slate-700 mb-1">Établissement</label>
+            <select name="etablissement_id" id="etablissement_id"
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                           focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <option value="">— Aucun —</option>
+                @foreach($etablissements ?? [] as $e)
+                    <option value="{{ $e->id }}" @selected(old('etablissement_id') == $e->id)>{{ $e->nom }}</option>
+                @endforeach
+            </select>
+        </div>
+
+        <div>
+            <label for="filiere_id" class="block text-xs font-semibold text-slate-700 mb-1">Filière</label>
+            <select name="filiere_id" id="filiere_id"
+                    class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                           focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                <option value="">— Aucune —</option>
+                @foreach($filieres ?? [] as $f)
+                    <option value="{{ $f->id }}" @selected(old('filiere_id') == $f->id)>{{ $f->libelle }}</option>
+                @endforeach
+            </select>
+        </div>
+    </div>
+
+    <div>
+        <label for="adresse" class="block text-xs font-semibold text-slate-700 mb-1">Adresse</label>
+        <textarea name="adresse" id="adresse" rows="2"
+                  class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg
+                         focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">{{ old('adresse') }}</textarea>
+    </div>
+</form>
+BLADE;
+    }
+
+    // ═════════════════════════════════════════════════
+    // 3. VUES create/edit/show (NE PAS ÉCRASER SI EXISTENT)
+    // ═════════════════════════════════════════════════
+    private function createFormateurViews(): void
+    {
+        $dir = resource_path('views/admin/formateurs');
+
+        // create.blade.php
+        $createPath = $dir . '/create.blade.php';
+        if (!File::exists($createPath)) {
+            File::put($createPath, $this->getCreateView());
+            $this->info('✅ create.blade.php créé');
+        } else {
+            $this->warn('⏭️  create.blade.php existe déjà (non écrasé)');
+        }
+
+        // edit.blade.php
+        $editPath = $dir . '/edit.blade.php';
+        if (!File::exists($editPath)) {
+            File::put($editPath, $this->getEditView());
+            $this->info('✅ edit.blade.php créé');
+        } else {
+            $this->warn('⏭️  edit.blade.php existe déjà (non écrasé)');
+        }
+
+        // show.blade.php
+        $showPath = $dir . '/show.blade.php';
+        if (!File::exists($showPath)) {
+            $this->info('ℹ️  show.blade.php manquant — création minimale');
+            File::put($showPath, $this->getShowView());
+            $this->info('✅ show.blade.php créé');
+        } else {
+            $this->warn('⏭️  show.blade.php existe déjà');
+        }
+    }
+
+    private function getCreateView(): string
+    {
+        return <<<'BLADE'
+@extends('layouts.admin')
+@section('title', 'Nouveau formateur')
+
+@section('content')
+<div class="mb-6">
+    <a href="{{ route('admin.formateurs.index') }}" class="text-[12px] text-slate-500 hover:text-brand-700">← Retour à la liste</a>
+    <h1 class="font-display text-2xl font-bold text-slate-900 mt-2">Ajouter un formateur</h1>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 p-6 max-w-3xl mx-auto">
+    @include('admin.formateurs.partials._form')
+
+    <div class="flex items-center justify-end gap-2 mt-6 pt-6 border-t border-slate-200">
+        <a href="{{ route('admin.formateurs.index') }}" class="btn-secondary">Annuler</a>
+        <button type="submit" form="formateurForm" class="btn-primary">
+            <span class="material-symbols-rounded text-[18px]">save</span>
+            Enregistrer
+        </button>
+    </div>
+</div>
+@endsection
+BLADE;
+    }
+
+    private function getEditView(): string
+    {
+        return <<<'BLADE'
+@extends('layouts.admin')
+@section('title', 'Modifier formateur')
+
+@section('content')
+<div class="mb-6">
+    <a href="{{ route('admin.formateurs.index') }}" class="text-[12px] text-slate-500 hover:text-brand-700">← Retour</a>
+    <h1 class="font-display text-2xl font-bold text-slate-900 mt-2">Modifier : {{ $formateur->nom }} {{ $formateur->prenom }}</h1>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 p-6 max-w-3xl mx-auto">
+    @include('admin.formateurs.partials._form', ['formateur' => $formateur ?? null])
+
+    <div class="flex items-center justify-end gap-2 mt-6 pt-6 border-t border-slate-200">
+        <a href="{{ route('admin.formateurs.index') }}" class="btn-secondary">Annuler</a>
+        <button type="submit" form="formateurForm" class="btn-primary">
+            <span class="material-symbols-rounded text-[18px]">save</span>
+            Mettre à jour
+        </button>
+    </div>
+</div>
+@endsection
+BLADE;
+    }
+
+    private function getShowView(): string
+    {
+        return <<<'BLADE'
+@extends('layouts.admin')
+@section('title', 'Détail formateur')
+
+@section('content')
+<div class="mb-6">
+    <a href="{{ route('admin.formateurs.index') }}" class="text-[12px] text-slate-500 hover:text-brand-700">← Retour</a>
+    <h1 class="font-display text-2xl font-bold text-slate-900 mt-2">{{ $formateur->nom }} {{ $formateur->prenom }}</h1>
+</div>
+
+<div class="bg-white rounded-xl border border-slate-200 p-6">
+    <dl class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div><dt class="text-slate-500">Matricule</dt><dd class="font-semibold">{{ $formateur->matricule }}</dd></div>
+        <div><dt class="text-slate-500">Email</dt><dd class="font-semibold">{{ $formateur->email }}</dd></div>
+        <div><dt class="text-slate-500">Téléphone</dt><dd class="font-semibold">{{ $formateur->telephone ?? '—' }}</dd></div>
+        <div><dt class="text-slate-500">Grade</dt><dd class="font-semibold">{{ $formateur->grade }}</dd></div>
+        <div><dt class="text-slate-500">Statut</dt><dd class="font-semibold">{{ $formateur->statut }}</dd></div>
+    </dl>
+</div>
+@endsection
+BLADE;
+    }
+
+    // ═════════════════════════════════════════════════
+    // 4. MÉTHODES MANQUANTES
+    // ═════════════════════════════════════════════════
+    private function addMissingMethods(): void
+    {
+        // DashboardController@formateursByEtablissement
+        $dashboardPath = app_path('Http/Controllers/Admin/DashboardController.php');
+        if (File::exists($dashboardPath)) {
+            $content = File::get($dashboardPath);
+            if (!str_contains($content, 'formateursByEtablissement')) {
+                // Insérer avant la dernière }
+                $pos = strrpos($content, '}');
+                $method = <<<'PHP'
+
+    public function formateursByEtablissement(Request $request)
+    {
+        $etablissementId = $request->input('etablissement_id');
+
+        $data = \Infrastructure\Persistence\Eloquent\Models\FormateurModel::query()
+            ->when($etablissementId, fn($q) => $q->where('etablissement_id', $etablissementId))
+            ->selectRaw('etablissement_id, COUNT(*) as total')
+            ->groupBy('etablissement_id')
+            ->with('etablissement')
+            ->get();
+
+        return response()->json($data);
+    }
+}
+PHP;
+                $content = substr($content, 0, $pos) . $method;
+                File::copy($dashboardPath, $dashboardPath . '.bak.' . date('Y-m-d_His'));
+                File::put($dashboardPath, $content);
+                $this->info('✅ DashboardController@formateursByEtablissement ajoutée');
+            } else {
+                $this->warn('⏭️  formateursByEtablissement existe déjà');
+            }
+        }
+
+        // Formateur\DemandeAffectationController@show
+        $demandePath = app_path('Http/Controllers/Formateur/DemandeAffectationController.php');
+        if (File::exists($demandePath)) {
+            $content = File::get($demandePath);
+            if (!preg_match('/public function show\s*\(/', $content)) {
+                $pos = strrpos($content, '}');
+                $method = <<<'PHP'
+
+    public function show(int $id)
+    {
+        $demande = \Infrastructure\Persistence\Eloquent\Models\DemandeAffectationModel::findOrFail($id);
+        return view('formateur.demandes.show', compact('demande'));
+    }
+}
+PHP;
+                $content = substr($content, 0, $pos) . $method;
+                File::copy($demandePath, $demandePath . '.bak.' . date('Y-m-d_His'));
+                File::put($demandePath, $content);
+                $this->info('✅ DemandeAffectationController@show ajoutée');
+            } else {
+                $this->warn('⏭️  show() existe déjà');
+            }
+        }
+    }
+
+    // ═════════════════════════════════════════════════
+    // 6. TEST AJAX
+    // ═════════════════════════════════════════════════
+    private function testAjaxRoute(): void
+    {
+        try {
+            $request = \Illuminate\Http\Request::create(
+                '/admin/formateurs/create',
+                'GET', [], [], [],
+                ['HTTP_X-REQUESTED-WITH' => 'XMLHttpRequest', 'HTTP_ACCEPT' => 'application/json']
+            );
+            $response = app()->handle($request);
+            $json = json_decode($response->getContent(), true);
+
+            if (isset($json['html'])) {
+                $this->info('✅ Route AJAX OK — HTML : ' . strlen($json['html']) . ' octets');
+            } else {
+                $this->error('❌ Route AJAX ne renvoie pas de "html"');
+                $this->line('   Body : ' . substr($response->getContent(), 0, 300));
+            }
+        } catch (\Throwable $e) {
+            $this->error('❌ Erreur : ' . $e->getMessage());
+        }
+    }
+}

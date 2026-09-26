@@ -1,0 +1,134 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Notification;
+use Infrastructure\Persistence\Eloquent\Models\DemandeAffectationModel;
+use Infrastructure\Persistence\Eloquent\Models\DemandeSessionModel;
+use Infrastructure\Persistence\Eloquent\Models\EtablissementModel;
+
+class NotificationService
+{
+    /**
+     * Nouvelle demande d'affectation créée
+     */
+    public static function demandeAffectationCreee(DemandeAffectationModel $demande): void
+    {
+        Notification::create([
+            'user_id' => null,
+            'titre'   => '📋 Nouvelle demande d\'affectation',
+            'message' => ($demande->formateur->prenom ?? '') . ' ' . ($demande->formateur->nom ?? '')
+                . ' (' . ($demande->formateur->matricule ?? '') . ') a soumis une demande d\'affectation.'
+                . ($demande->filiere ? ' — Filière : ' . $demande->filiere->libelle : ''),
+            'type'    => 'info',
+            'icone'   => 'assignment',
+            'lu'      => false,
+            'lien'    => '/admin/affectations?tab=demandes',
+            'data'    => json_encode([
+                'demande_id'   => $demande->id,
+                'formateur_id' => $demande->formateur_id,
+                'type'         => 'demande_affectation',
+            ]),
+        ]);
+    }
+
+    /**
+     * Nouvelle demande de session créée
+     */
+    public static function demandeSessionCreee(DemandeSessionModel $demande): void
+    {
+        Notification::create([
+            'user_id' => null,
+            'titre'   => '📅 Nouvelle demande de session',
+            'message' => ($demande->formateur->prenom ?? '') . ' ' . ($demande->formateur->nom ?? '')
+                . ' (' . ($demande->formateur->matricule ?? '') . ') a soumis une demande de session.'
+                . ($demande->titre ? ' — ' . $demande->titre : ''),
+            'type'    => 'info',
+            'icone'   => 'event',
+            'lu'      => false,
+            'lien'    => '/admin/sessions?tab=demandes',
+            'data'    => json_encode([
+                'demande_id'   => $demande->id,
+                'formateur_id' => $demande->formateur_id,
+                'type'         => 'demande_session',
+            ]),
+        ]);
+    }
+
+    /**
+     * Demande d'affectation traitée → notification au formateur
+     */
+    public static function demandeAffectationTraitee(DemandeAffectationModel $demande): void
+    {
+        $approuvee = $demande->statut === DemandeAffectationModel::STATUT_APPROUVEE;
+
+        Notification::create([
+            'user_id' => $demande->formateur_id,
+            'titre'   => $approuvee
+                ? '✅ Votre demande d\'affectation est approuvée'
+                : '❌ Votre demande d\'affectation est refusée',
+            'message' => ($approuvee
+                    ? 'Votre demande a été approuvée par l\'administration.'
+                    : 'Votre demande a été refusée par l\'administration.')
+                . ($demande->reponse_admin ? "\n\nRéponse : " . $demande->reponse_admin : ''),
+            'type'    => $approuvee ? 'success' : 'danger',
+            'icone'   => $approuvee ? 'check_circle' : 'cancel',
+            'lu'      => false,
+            'lien'    => '/formateur/demandes',
+            'data'    => json_encode([
+                'demande_id' => $demande->id,
+                'statut'     => $demande->statut,
+                'type'       => 'reponse_affectation',
+            ]),
+        ]);
+    }
+
+    /**
+     * Demande de session traitée → notification au formateur
+     */
+    public static function demandeSessionTraitee(DemandeSessionModel $demande): void
+    {
+        $approuvee = $demande->statut === DemandeSessionModel::STATUT_APPROUVEE;
+
+        Notification::create([
+            'user_id' => $demande->formateur_id,
+            'titre'   => $approuvee
+                ? '✅ Votre demande de session est approuvée'
+                : '❌ Votre demande de session est refusée',
+            'message' => ($approuvee
+                    ? 'Votre demande de session a été approuvée.'
+                    : 'Votre demande de session a été refusée.')
+                . ($demande->reponse_admin ? "\n\nRéponse : " . $demande->reponse_admin : ''),
+            'type'    => $approuvee ? 'success' : 'danger',
+            'icone'   => $approuvee ? 'event_available' : 'event_busy',
+            'lu'      => false,
+            'lien'    => '/formateur/sessions',
+            'data'    => json_encode([
+                'demande_id' => $demande->id,
+                'statut'     => $demande->statut,
+                'type'       => 'reponse_session',
+            ]),
+        ]);
+    }
+
+    /**
+     * Nouvel établissement créé
+     */
+    public static function etablissementCree(EtablissementModel $etablissement): void
+    {
+        Notification::create([
+            'user_id' => null,
+            'titre'   => '🏢 Nouvel établissement créé',
+            'message' => 'L\'établissement "' . $etablissement->nom . '" ('
+                . ($etablissement->code ?? '') . ') a été ajouté au réseau.',
+            'type'    => 'success',
+            'icone'   => 'apartment',
+            'lu'      => false,
+            'lien'    => '/admin/etablissements/' . $etablissement->id,
+            'data'    => json_encode([
+                'etablissement_id' => $etablissement->id,
+                'type'             => 'etablissement_cree',
+            ]),
+        ]);
+    }
+}

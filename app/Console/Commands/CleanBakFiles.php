@@ -1,0 +1,47 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class CleanBakFiles extends Command
+{
+    protected $signature = 'project:clean-bak {--force : Supprime sans confirmation}';
+    protected $description = 'Déplace tous les fichiers .bak dans storage/backups';
+
+    public function handle(): int
+    {
+        $backupDir = storage_path('backups/' . date('Y-m-d_His'));
+
+        if (!File::exists($backupDir)) {
+            File::makeDirectory($backupDir, 0755, true);
+        }
+
+        $baks = collect(File::allFiles(app_path()))
+            ->filter(fn($f) => str_contains($f->getFilename(), '.bak'));
+
+        if ($baks->isEmpty()) {
+            $this->info("[OK] Aucun fichier .bak trouvé");
+            return self::SUCCESS;
+        }
+
+        $this->warn("[SEARCH] {$baks->count()} fichiers .bak trouvés :");
+        foreach ($baks as $bak) {
+            $this->line("   * " . str_replace(base_path() . DIRECTORY_SEPARATOR, '', $bak->getPathname()));
+        }
+
+        if (!$this->option('force') && !$this->confirm('Déplacer ces fichiers vers storage/backups ?', true)) {
+            return self::SUCCESS;
+        }
+
+        foreach ($baks as $bak) {
+            $dest = $backupDir . DIRECTORY_SEPARATOR . $bak->getFilename();
+            File::move($bak->getPathname(), $dest);
+        }
+
+        $this->info("[OK] Déplacés dans : {$backupDir}");
+
+        return self::SUCCESS;
+    }
+}

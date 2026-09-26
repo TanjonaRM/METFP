@@ -1,0 +1,65 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class ShowFormPartial extends Command
+{
+    protected $signature = 'show:form-partial';
+    protected $description = 'Affiche le contenu du partial _form.blade.php';
+
+    public function handle(): int
+    {
+        $path = resource_path('views/admin/formateurs/partials/_form.blade.php');
+
+        if (!File::exists($path)) {
+            $this->error("[X] Fichier introuvable : {$path}");
+            return self::FAILURE;
+        }
+
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [FILE] CONTENU DE _form.blade.php                           |');
+        $this->line('+==========================================================+');
+        $this->line('');
+
+        $content = File::get($path);
+        $lines = explode("\n", $content);
+
+        $this->line("Taille : " . File::size($path) . " octets");
+        $this->line("Lignes : " . count($lines));
+        $this->line('');
+
+        // Statistiques
+        $hasForm    = str_contains($content, '<form');
+        $hasEndForm = str_contains($content, '</form>');
+        $hasCsrf    = str_contains($content, '@csrf');
+        $hasError   = str_contains($content, '@error');
+        $hasErrs    = str_contains($content, '$errs');
+        $hasErrors  = str_contains($content, '$errors');
+
+        $this->line('[SEARCH] Diagnostic :');
+        $this->line(($hasForm    ? '[X]' : '[OK]') . ' <form> : '    . ($hasForm    ? 'PRÉSENT' : 'absent'));
+        $this->line(($hasEndForm ? '[X]' : '[OK]') . ' </form> : '   . ($hasEndForm ? 'PRÉSENT' : 'absent'));
+        $this->line(($hasCsrf    ? '[!]️ ' : '[OK]') . ' @csrf : '    . ($hasCsrf    ? 'PRÉSENT' : 'absent'));
+        $this->line(($hasError   ? '[!]️ ' : '[OK]') . ' @error : '   . ($hasError   ? 'PRÉSENT' : 'absent'));
+        $this->line(($hasErrs    ? '[OK]' : '[!]️ ') . ' $errs : '    . ($hasErrs    ? 'présent' : 'ABSENT'));
+        $this->line(($hasErrors  ? 'ℹ️ ' : '⚪') . ' $errors : '  . ($hasErrors  ? 'présent' : 'absent'));
+        $this->line('');
+
+        // Afficher tout le contenu
+        $this->line('===========================================================');
+        $this->line('CONTENU COMPLET :');
+        $this->line('===========================================================');
+
+        foreach ($lines as $i => $line) {
+            $this->line(sprintf('%4d | %s', $i + 1, $line));
+        }
+
+        $this->line('===========================================================');
+
+        return self::SUCCESS;
+    }
+}

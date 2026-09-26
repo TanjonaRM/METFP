@@ -1,0 +1,159 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class FixModalAutoOpen extends Command
+{
+    protected $signature = 'fix:modal-auto-open';
+    protected $description = 'Corrige le modal formateur qui s\'ouvre automatiquement';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [TOOL] CORRECTION MODAL AUTO-OUVERT                         |');
+        $this->line('+==========================================================+');
+        $this->line('');
+
+        $path = resource_path('views/admin/formateurs/index.blade.php');
+
+        if (!File::exists($path)) {
+            $this->error("[X] Fichier introuvable : {$path}");
+            return self::FAILURE;
+        }
+
+        // Backup
+        File::copy($path, $path . '.bak.' . date('Y-m-d_His'));
+        $this->line('[SAVE] Backup créé');
+
+        $content = File::get($path);
+        $original = $content;
+        $modifications = [];
+
+        // ===============================================
+        // 1. S'assurer que le modal a bien la classe "hidden"
+        // ===============================================
+
+        // Chercher la balise d'ouverture du modal
+        if (preg_match('/<div\s+id="formateurModal"([^>]*)>/s', $content, $m)) {
+            $attrs = $m[1];
+
+            // Vérifier si class="hidden" est présent
+            if (!preg_match('/class="[^"]*\bhidden\b[^"]*"/', $attrs)) {
+                // Ajouter la classe hidden
+                $newAttrs = $attrs;
+                if (preg_match('/class="([^"]*)"/', $attrs, $cm)) {
+                    // Il y a déjà une classe, ajouter hidden
+                    $newAttrs = str_replace(
+                        'class="' . $cm[1] . '"',
+                        'class="' . $cm[1] . ' hidden"',
+                        $attrs
+                    );
+                } else {
+                    // Pas de classe, en ajouter une
+                    $newAttrs = ' class="hidden"' . $attrs;
+                }
+
+                $content = str_replace(
+                    '<div id="formateurModal"' . $attrs . '>',
+                    '<div id="formateurModal"' . $newAttrs . '>',
+                    $content
+                );
+
+                $modifications[] = '[OK] Classe "hidden" ajoutée sur #formateurModal';
+            } else {
+                $this->line('   ℹ️  Classe "hidden" déjà présente');
+            }
+        }
+
+        // ===============================================
+        // 2. Forcer display:none dans le style inline
+        // ===============================================
+
+        if (preg_match('/<div\s+id="formateurModal"[^>]*style="([^"]*)"/s', $content, $m)) {
+            $style = $m[1];
+            if (!str_contains($style, 'display: none') && !str_contains($style, 'display:none')) {
+                // Ajouter display:none au début
+                $newStyle = 'display: none; ' . $style;
+                $content = str_replace(
+                    'style="' . $style . '"',
+                    'style="' . $newStyle . '"',
+                    $content
+                );
+                $modifications[] = '[OK] display:none ajouté dans style inline';
+            } else {
+                $this->line('   ℹ️  display:none déjà dans le style');
+            }
+        }
+
+        // ===============================================
+        // 3. Corriger le CSS pour ne pas forcer l'affichage
+        // ===============================================
+
+        // Chercher la règle CSS problématique
+        if (preg_match('/#formateurModal:not\(\.hidden\)\s*\{[^}]*display:\s*flex\s*!important[^}]*\}/s', $content, $cssMatch)) {
+            $this->line('');
+            $this->line('   [!]️  Règle CSS problématique trouvée :');
+            $this->line('   ' . substr($cssMatch[0], 0, 100) . '...');
+            $this->line('');
+            $this->line('   💡 Cette règle force l\'affichage si .hidden est absent');
+            $this->line('   💡 Solution : S\'assurer que .hidden est TOUJOURS présent au chargement');
+        }
+
+        // ===============================================
+        // 4. Vérifier le JS d'ouverture automatique
+        // ===============================================
+
+        if (preg_match('/DOMContentLoaded[^;]*openFormateurModal/s', $content)
+            || preg_match('/window\.onload[^;]*openFormateurModal/s', $content)) {
+            $this->warn('   [!]️  Le JS semble ouvrir le modal au chargement !');
+            $this->line('   -> Cherchez un appel automatique à openFormateurModal()');
+        }
+
+        // ===============================================
+        // 5. Enregistrer
+        // ===============================================
+
+        if ($content === $original) {
+            $this->line('');
+            $this->warn('[!]️  Aucune modification automatique possible.');
+            $this->line('');
+            $this->line('-> Voici la marche à suivre MANUELLE :');
+            $this->line('');
+            $this->line('1. Ouvrez : resources/views/admin/formateurs/index.blade.php');
+            $this->line('2. Cherchez : <div id="formateurModal"');
+            $this->line('3. Assurez-vous que la classe "hidden" est présente :');
+            $this->line('   <div id="formateurModal" class="hidden" ...>');
+            $this->line('4. Cherchez tout appel à openFormateurModal() au chargement');
+            $this->line('5. Supprimez-le s\'il existe');
+        } else {
+            File::put($path, $content);
+            $this->line('');
+            foreach ($modifications as $mod) {
+                $this->info("   {$mod}");
+            }
+        }
+
+        // ===============================================
+        // Vider les caches
+        // ===============================================
+        $this->line('');
+        $this->line('> Vidage des caches');
+        $this->call('view:clear');
+        $this->call('optimize:clear');
+
+        $this->line('');
+        $this->line('+==========================================================+');
+        $this->line('|   [SUCCESS] TERMINÉ                                              |');
+        $this->line('+==========================================================+');
+        $this->line('');
+        $this->line('-> Testez : http://localhost:8000/admin/formateurs');
+        $this->line('   Le modal ne doit PAS s\'ouvrir automatiquement');
+        $this->line('   Il doit s\'ouvrir UNIQUEMENT au clic sur "Ajouter"');
+
+        return self::SUCCESS;
+    }
+}

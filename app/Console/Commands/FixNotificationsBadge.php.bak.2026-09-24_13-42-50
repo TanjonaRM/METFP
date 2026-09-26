@@ -1,0 +1,218 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class FixNotificationsBadge extends Command
+{
+    protected $signature = 'project:fix-notifications-badge
+                            {--backup : Sauvegarder les fichiers (.bak)}
+                            {--force : Écraser sans confirmation}';
+
+    protected $description = 'Corrige le badge de notifications admin (endpoint JSON + JS)';
+
+    public function handle(): int
+    {
+        $this->info("🔔 Correction du badge de notifications admin");
+        $this->newLine();
+
+        if (!$this->option('force') && !$this->confirm('Corriger routes + contrôleur + layout ?', true)) {
+            $this->warn('Annulé.');
+            return self::FAILURE;
+        }
+
+        // ============================================================
+        // 1. Ajouter la route API count
+        // ============================================================
+        $routesPath = base_path('routes/admin.php');
+
+        if (File::exists($routesPath)) {
+            if ($this->option('backup')) {
+                File::copy($routesPath, $routesPath . '.bak.' . date('Y-m-d_H-i-s'));
+            }
+
+            $routesContent = File::get($routesPath);
+
+            // Vérifier si la route existe déjà
+            if (!str_contains($routesContent, 'notifications/count')) {
+                // Ajouter dans le groupe notifications
+                $pattern = "/(Route::prefix\('notifications'\)->name\('notifications\.'\)->group\(function \(\) \{)/";
+
+                $newRoute = "\n            Route::get('/count', [NotificationController::class, 'count'])->name('count');";
+
+                if (preg_match($pattern, $routesContent)) {
+                    $routesContent = preg_replace($pattern, '$1' . $newRoute, $routesContent);
+                    File::put($routesPath, $routesContent);
+                    $this->line("  ✅ Route /admin/notifications/count ajoutée");
+                } else {
+                    $this->error("  ❌ Impossible d'ajouter la route");
+                    return self::FAILURE;
+                }
+            } else {
+                $this->line("  ⚠️  Route count existe déjà");
+            }
+        }
+
+        // ============================================================
+        // 2. Ajouter la méthode count() au contrôleur
+        // ============================================================
+        $controllerPath = base_path('app/Http/Controllers/Admin/NotificationController.php');
+
+        if (!File::exists($controllerPath)) {
+            $this->error("  ❌ NotificationController introuvable");
+            return self::FAILURE;
+        }
+
+        if ($this->option('backup')) {
+            File::copy($controllerPath, $controllerPath . '.bak.' . date('Y-m-d_H-i-s'));
+        }
+
+        $controllerContent = File::get($controllerPath);
+
+        if (!str_contains($controllerContent, 'public function count()')) {
+            // Insérer avant la dernière accolade
+            $method = <<<'PHP'
+
+    /**
+     * Retourne le nombre de notifications non lues (JSON)
+     * Utilisé par le badge dans la sidebar
+     */
+    public function count()
+    {
+        $nonLues = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', \Illuminate\Support\Facades\Auth::guard('admin')->id());
+            })
+            ->where('lu', false)
+            ->count();
+
+        return response()->json([
+            'non_lues' => $nonLues,
+        ]);
+    }
+}
+PHP;
+
+            // Remplacer la dernière accolade
+            $lastBracePos = strrpos($controllerContent, '}');
+            $controllerContent = substr_replace($controllerContent, $method, $lastBracePos);
+
+            File::put($controllerPath, $controllerContent);
+            $this->line("  ✅ Méthode count() ajoutée au contrôleur");
+        } else {
+            $this->line("  ⚠️  Méthode count() existe déjà");
+        }
+
+        // ============================================================
+        // 3. Corriger le JS dans layouts/admin.blade.php
+        // ============================================================
+        $layoutPath = base_path('resources/views/layouts/admin.blade.php');
+
+        if (!File::exists($layoutPath)) {
+            $this->error("  ❌ Layout admin introuvable");
+            return self::FAILURE;
+        }
+
+        if ($this->option('backup')) {
+            File::copy($layoutPath, $layoutPath . '.bak.' . date('Y-m-d_H-i-s'));
+        }
+
+        $layoutContent = File::get($layoutPath);
+
+        // Remplacer l'appel au mauvais endpoint par le bon
+        // AVANT : fetch('{{ route("admin.notifications.index") }}' → JSON échoue
+        // APRÈS : fetch('{{ route("admin.notifications.count") }}' → JSON OK
+
+        // Pattern 1 : chargerNotifications() — index
+        $layoutContent = preg_replace(
+            "/fetch\('{{ route\(\"admin\.notifications\.index\"\) }}'/",
+            "fetch('{{ route(\"admin.notifications.count\") }}'",
+            $layoutContent
+        );
+
+        // Pattern 2 : DOMContentLoaded — index
+        $layoutContent = preg_replace(
+            "/fetch\('{{ route\(\"admin\.notifications\.index\"\) }}',\s*\{\s*headers:\s*\{\s*'X-Requested-With':\s*'XMLHttpRequest',\s*'Accept':\s*'application\/json'\s*\}\s*\}\)/",
+            "fetch('{{ route(\"admin.notifications.count\") }}', {\n            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }\n        })",
+            $layoutContent
+        );
+
+        // ============================================================
+        // 4. Remplacer entièrement le bloc JS du badge
+        // ============================================================
+        $badgeJs = <<<'JS'
+
+    // ============================================
+    // BADGE NOTIFICATIONS — chargement du compteur
+    // ============================================
+    function chargerBadgeNotifications() {
+        fetch('{{ route("admin.notifications.count") }}', {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json'
+            }
+        })
+        .then(r => r.json())
+        .then(data => {
+            const badge = document.getElementById('notif-badge');
+            if (!badge) return;
+
+            if (data.non_lues > 0) {
+                badge.textContent = data.non_lues > 99 ? '99+' : data.non_lues;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        })
+        .catch(err => console.warn('Erreur badge notifications:', err));
+    }
+
+    // Charger au démarrage
+    document.addEventListener('DOMContentLoaded', chargerBadgeNotifications);
+
+    // Recharger toutes les 30 secondes
+    setInterval(chargerBadgeNotifications, 30000);
+
+JS;
+
+        // Chercher un marqueur pour insérer le bloc
+        if (!str_contains($layoutContent, 'chargerBadgeNotifications')) {
+            // Insérer avant la dernière balise </script>
+            $lastScriptClose = strrpos($layoutContent, '</script>');
+            if ($lastScriptClose !== false) {
+                $layoutContent = substr_replace($layoutContent, $badgeJs, $lastScriptClose, 0);
+                File::put($layoutPath, $layoutContent);
+                $this->line("  ✅ Bloc JS 'chargerBadgeNotifications' ajouté");
+            }
+        } else {
+            $this->line("  ⚠️  Bloc JS déjà présent");
+        }
+
+        // ============================================================
+        // 5. Corriger aussi la méthode chargerNotifications()
+        // ============================================================
+        // Le dropdown utilise aussi "index" pour charger la liste
+        // Mais "index" retourne du HTML → il faut un autre endpoint
+        // Pour l'instant on le laisse tel quel (il faut vérifier s'il y a un endpoint JSON)
+
+        // ============================================================
+        // 6. Nettoyer les caches
+        // ============================================================
+        $this->newLine();
+        $this->info("🧹 Nettoyage des caches...");
+        $this->call('route:clear');
+        $this->call('view:clear');
+        $this->call('cache:clear');
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS : badge notifications corrigé");
+        $this->line("  • Route : /admin/notifications/count (JSON)");
+        $this->line("  • Méthode : NotificationController::count()");
+        $this->line("  • JS : chargerBadgeNotifications()");
+        $this->line("  • Rafraîchissement auto : toutes les 30s");
+
+        return self::SUCCESS;
+    }
+}

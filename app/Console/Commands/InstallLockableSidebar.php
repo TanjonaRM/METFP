@@ -1,0 +1,717 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class InstallLockableSidebar extends Command
+{
+    protected $signature = 'project:install-lockable-sidebar
+                            {--backup : Sauvegarder le fichier existant (.bak)}
+                            {--force : Écraser sans confirmation}';
+
+    protected $description = 'Sidebar verrouillable + tooltips sur les icônes en mode rétracté';
+
+    public function handle(): int
+    {
+        $this->info("🏷️  Installation de la sidebar verrouillable + tooltips");
+        $this->newLine();
+
+        if (!$this->option('force') && !$this->confirm('Réécrire resources/views/layouts/admin.blade.php ?', true)) {
+            $this->warn('Annulé.');
+            return self::FAILURE;
+        }
+
+        $path = 'resources/views/layouts/admin.blade.php';
+        $fullPath = base_path($path);
+
+        if (!File::exists(dirname($fullPath))) {
+            File::makeDirectory(dirname($fullPath), 0755, true);
+        }
+
+        if ($this->option('backup') && File::exists($fullPath)) {
+            $backupPath = $fullPath . '.bak.' . date('Y-m-d_H-i-s');
+            File::copy($fullPath, $backupPath);
+            $this->line("  [SAVE] Backup : " . basename($backupPath));
+        }
+
+        $content = $this->getLayout();
+        File::put($fullPath, $content);
+
+        $size = round(strlen($content) / 1024, 2);
+        $this->line("  [OK] {$path} ({$size} Ko)");
+
+        $this->newLine();
+        $this->info("[CLEAN] Nettoyage des caches...");
+        $this->call('view:clear');
+        $this->call('cache:clear');
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS : sidebar verrouillable + tooltips");
+        $this->line("  * Tooltips avec icône + texte + flèche");
+        $this->line("  * S'affichent en mode rétracté (déverrouillé ou verrouillé)");
+        $this->line("  * Apparition avec animation slide");
+
+        return self::SUCCESS;
+    }
+
+    protected function getLayout(): string
+    {
+        return <<<'BLADE'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>@yield('title', 'Dashboard') - SGFORMATEURS</title>
+
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+
+    <style>
+        /* =========================================================
+           VARIABLES
+        ========================================================= */
+        :root {
+            --sidebar-collapsed: 72px;
+            --sidebar-expanded: 300px;
+            --transition-speed: 0.3s;
+            --transition-ease: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* =========================================================
+           SIDEBAR
+        ========================================================= */
+        #sidebar {
+            width: var(--sidebar-collapsed);
+            transition: width var(--transition-speed) var(--transition-ease);
+            overflow: visible; /* [!]️ visible pour laisser les tooltips sortir */
+        }
+
+        /* Comportement au survol - UNIQUEMENT si NON verrouillée */
+        #sidebar:not(.sidebar-locked):hover {
+            width: var(--sidebar-expanded);
+            box-shadow: 8px 0 24px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Si verrouillée en mode étendu -> reste ouverte en permanence */
+        #sidebar.sidebar-locked.sidebar-locked-expanded {
+            width: var(--sidebar-expanded);
+            box-shadow: 8px 0 24px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Nav interne : overflow vertical autorisé, horizontal non */
+        #sidebar nav {
+            overflow-y: auto;
+            overflow-x: visible;
+        }
+
+        /* Logo */
+        .sidebar-logo-text {
+            opacity: 0;
+            transition: opacity 0.2s ease 0.1s;
+            white-space: nowrap;
+        }
+        #sidebar:not(.sidebar-locked):hover .sidebar-logo-text,
+        #sidebar.sidebar-locked.sidebar-locked-expanded .sidebar-logo-text {
+            opacity: 1;
+        }
+
+        /* Sections */
+        .sidebar-section-label {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: rgba(167, 243, 208, 0.5);
+            padding: 0 18px;
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            transition: all 0.25s ease;
+        }
+        #sidebar:not(.sidebar-locked):hover .sidebar-section-label,
+        #sidebar.sidebar-locked.sidebar-locked-expanded .sidebar-section-label {
+            opacity: 1;
+            max-height: 60px;
+            padding: 20px 18px 10px 18px;
+        }
+
+        /* Liens */
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.15s ease, color 0.15s ease;
+            text-decoration: none;
+            white-space: nowrap;
+            position: relative;
+        }
+        .sidebar-link .material-symbols-rounded {
+            font-size: 22px;
+            flex-shrink: 0;
+            min-width: 24px;
+            text-align: center;
+        }
+        .sidebar-link-text {
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            white-space: nowrap;
+        }
+        #sidebar:not(.sidebar-locked):hover .sidebar-link-text,
+        #sidebar.sidebar-locked.sidebar-locked-expanded .sidebar-link-text {
+            opacity: 1;
+            transition: opacity 0.2s ease 0.1s;
+        }
+
+        .sidebar-link-active {
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+            box-shadow: inset 3px 0 0 #34d399;
+        }
+        .sidebar-link-inactive {
+            color: rgba(209, 250, 229, 0.75);
+        }
+        .sidebar-link-inactive:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: #ffffff;
+        }
+
+        /* =========================================================
+           TOOLTIP PREMIUM - s'affiche en mode rétracté
+        ========================================================= */
+        .sidebar-link[data-tooltip]::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: calc(100% + 16px);
+            top: 50%;
+            transform: translateY(-50%) translateX(-4px);
+            background: #18181b;
+            color: #ffffff;
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            z-index: 200;
+            box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255,255,255,0.05);
+        }
+
+        /* Petite flèche (triangle) à gauche du tooltip */
+        .sidebar-link[data-tooltip]::before {
+            content: '';
+            position: absolute;
+            left: calc(100% + 8px);
+            top: 50%;
+            transform: translateY(-50%) translateX(-4px);
+            border: 6px solid transparent;
+            border-right-color: #18181b;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            z-index: 200;
+        }
+
+        /* [AJAX] AFFICHER le tooltip quand :
+           - sidebar NON verrouillée ET NON survolée ET lien survolé
+           - sidebar VERROUILLÉE RÉTRACTÉE ET lien survolé
+        */
+        #sidebar:not(.sidebar-locked):not(:hover) .sidebar-link[data-tooltip]:hover::after,
+        #sidebar.sidebar-locked.sidebar-locked-collapsed .sidebar-link[data-tooltip]:hover::after {
+            opacity: 1;
+            transform: translateY(-50%) translateX(0);
+        }
+        #sidebar:not(.sidebar-locked):not(:hover) .sidebar-link[data-tooltip]:hover::before,
+        #sidebar.sidebar-locked.sidebar-locked-collapsed .sidebar-link[data-tooltip]:hover::before {
+            opacity: 1;
+            transform: translateY(-50%) translateX(0);
+        }
+
+        /* Profil */
+        .sidebar-profile-text {
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        #sidebar:not(.sidebar-locked):hover .sidebar-profile-text,
+        #sidebar.sidebar-locked.sidebar-locked-expanded .sidebar-profile-text {
+            opacity: 1;
+            transition: opacity 0.2s ease 0.1s;
+        }
+
+        /* =========================================================
+           BOUTON DE VERROUILLAGE
+        ========================================================= */
+        .sidebar-lock-btn {
+            position: absolute;
+            top: 20px;
+            right: 8px;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.06);
+            color: rgba(167, 243, 208, 0.6);
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            opacity: 0;
+            z-index: 10;
+        }
+        #sidebar:hover .sidebar-lock-btn,
+        #sidebar.sidebar-locked .sidebar-lock-btn {
+            opacity: 1;
+        }
+        .sidebar-lock-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+        }
+        .sidebar-lock-btn .material-symbols-rounded {
+            font-size: 18px;
+        }
+
+        #sidebar.sidebar-locked .sidebar-lock-btn {
+            background: rgba(52, 211, 153, 0.2);
+            color: #34d399;
+        }
+        #sidebar.sidebar-locked .sidebar-lock-btn:hover {
+            background: rgba(52, 211, 153, 0.3);
+        }
+
+        /* =========================================================
+           CONTENU PRINCIPAL
+        ========================================================= */
+        .main-wrapper {
+            margin-left: 0;
+            transition: margin-left var(--transition-speed) var(--transition-ease);
+        }
+
+        @media (min-width: 1024px) {
+            .main-wrapper {
+                margin-left: var(--sidebar-collapsed);
+            }
+            .main-wrapper.sidebar-expanded {
+                margin-left: var(--sidebar-expanded);
+            }
+        }
+    </style>
+</head>
+<body class="font-sans bg-slate-50 text-slate-900 antialiased">
+
+@php
+    $admin = Auth::guard('admin')->user();
+    $initials = strtoupper(substr($admin->prenom ?? 'A', 0, 1) . substr($admin->nom ?? 'D', 0, 1));
+
+    $menu = [
+        ['route' => 'admin.dashboard*', 'url' => 'admin.dashboard', 'icon' => 'home', 'label' => 'Accueil'],
+        ['section' => 'Gestion'],
+        ['route' => 'admin.formateurs.*', 'url' => 'admin.formateurs.index', 'icon' => 'groups', 'label' => 'Formateurs'],
+        ['route' => 'admin.etablissements.*', 'url' => 'admin.etablissements.index', 'icon' => 'apartment', 'label' => 'Établissements'],
+        ['route' => 'admin.filieres.*', 'url' => 'admin.filieres.index', 'icon' => 'school', 'label' => 'Filières'],
+        ['route' => 'admin.affectations.*', 'url' => 'admin.affectations.index', 'icon' => 'assignment_ind', 'label' => 'Affectations'],
+        ['route' => 'admin.sessions.*', 'url' => 'admin.sessions.index', 'icon' => 'event', 'label' => 'Sessions'],
+        ['section' => 'Système'],
+        ['route' => 'admin.users.*', 'url' => 'admin.users.index', 'icon' => 'manage_accounts', 'label' => 'Utilisateurs'],
+        ['route' => 'admin.pdf.*', 'url' => 'admin.pdf.index', 'icon' => 'description', 'label' => 'Rapports'],
+    ];
+@endphp
+
+{{-- ============================================================
+     SIDEBAR
+     ============================================================ --}}
+<aside id="sidebar"
+       class="fixed top-0 left-0 h-screen bg-brand-900 flex flex-col z-50
+              -translate-x-full lg:translate-x-0">
+
+    {{-- Logo + Bouton verrouillage --}}
+    <div class="relative flex items-center gap-4 px-5 h-20 border-b border-white/10 shrink-0">
+
+        <div class="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center shrink-0
+                    ring-1 ring-white/10">
+            <span class="material-symbols-rounded text-white text-[20px]"
+                  style="font-variation-settings: 'FILL' 1;">school</span>
+        </div>
+        <div class="sidebar-logo-text flex flex-col leading-tight">
+            <span class="font-display font-bold text-white text-[15px] tracking-tight">
+                SGFORMATEURS
+            </span>
+            <span class="text-[11px] text-emerald-200/70 mt-1">
+                Gestion des Formateurs
+            </span>
+        </div>
+
+        {{-- 🔘 Bouton de verrouillage --}}
+        <button id="sidebar-lock-btn"
+                class="sidebar-lock-btn"
+                onclick="toggleSidebarLock()"
+                title="Verrouiller / Déverrouiller la sidebar">
+            <span class="material-symbols-rounded" id="lock-icon">lock_open</span>
+        </button>
+    </div>
+
+    {{-- Menu --}}
+    <nav class="flex-1 px-3 py-5 space-y-1.5">
+        @foreach($menu as $item)
+            @if(isset($item['section']))
+                <div class="sidebar-section-label">
+                    {{ $item['section'] }}
+                </div>
+            @else
+                @php $active = request()->routeIs($item['route']); @endphp
+                <a href="{{ route($item['url']) }}"
+                   class="sidebar-link {{ $active ? 'sidebar-link-active' : 'sidebar-link-inactive' }}"
+                   data-tooltip="{{ $item['label'] }}">
+                    <span class="material-symbols-rounded shrink-0">
+                        {{ $item['icon'] }}
+                    </span>
+                    <span class="sidebar-link-text flex-1">
+                        {{ $item['label'] }}
+                    </span>
+                </a>
+            @endif
+        @endforeach
+    </nav>
+
+    {{-- Profil --}}
+    <div class="p-3 border-t border-white/10 shrink-0">
+        <div class="flex items-center gap-3 p-2 rounded-xl bg-white/5">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600
+                        flex items-center justify-center
+                        text-white font-bold text-[13px] shrink-0
+                        ring-2 ring-white/10">
+                {{ $initials }}
+            </div>
+            <div class="sidebar-profile-text flex-1 min-w-0">
+                <div class="font-semibold text-[13px] text-white truncate">
+                    {{ $admin->prenom }} {{ $admin->nom }}
+                </div>
+                <div class="text-[11px] text-emerald-200/70 mt-0.5">
+                    Administrateur
+                </div>
+            </div>
+            <form action="{{ route('admin.logout') }}" method="POST"
+                  class="sidebar-profile-text">
+                @csrf
+                <button class="w-9 h-9 rounded-lg flex items-center justify-center
+                               text-emerald-200/70 hover:bg-white/10 hover:text-white transition"
+                        title="Déconnexion">
+                    <span class="material-symbols-rounded text-[20px]">logout</span>
+                </button>
+            </form>
+        </div>
+    </div>
+</aside>
+
+<div id="sidebar-overlay"
+     class="fixed inset-0 bg-black/40 z-40 hidden lg:hidden"
+     onclick="closeSidebar()"></div>
+
+{{-- ============================================================
+     CONTENU PRINCIPAL
+     ============================================================ --}}
+<div id="main-wrapper" class="main-wrapper min-h-screen flex flex-col">
+
+    {{-- HEADER --}}
+    <header class="sticky top-0 h-20 bg-white border-b border-slate-200
+                   flex items-center justify-between px-6 lg:px-10 z-30
+                   shadow-sm">
+
+        <div class="flex items-center gap-6">
+            <button class="lg:hidden w-10 h-10 rounded-xl flex items-center justify-center
+                           text-slate-600 hover:bg-slate-100 transition"
+                    onclick="toggleSidebar()">
+                <span class="material-symbols-rounded text-[22px]">menu</span>
+            </button>
+
+            <div class="hidden sm:flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+                    <span class="material-symbols-rounded text-brand-700 text-[22px]"
+                          style="font-variation-settings: 'FILL' 1;">dashboard</span>
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-none">
+                        SGFORMATEURS
+                    </span>
+                    <span class="font-display font-bold text-slate-900 text-[16px] mt-1 leading-none">
+                        @yield('title', 'Tableau de bord')
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+
+            <div class="relative">
+                <button onclick="toggleNotifications()"
+                        class="relative w-11 h-11 rounded-xl flex items-center justify-center
+                               text-slate-500 hover:bg-slate-100 hover:text-slate-700
+                               transition-all">
+                    <span class="material-symbols-rounded text-[24px]">notifications</span>
+                    <span id="notif-badge"
+                          class="hidden absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1
+                                 bg-red-500 text-white text-[10px] font-bold
+                                 rounded-full flex items-center justify-center
+                                 border-2 border-white shadow-sm">
+                        0
+                    </span>
+                </button>
+
+                <div id="notifications-dropdown"
+                     class="hidden absolute right-0 mt-3 w-96 bg-white rounded-2xl
+                            border border-slate-200 shadow-2xl z-50 overflow-hidden">
+                    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                        <h3 class="font-display font-bold text-slate-900 text-[14px]">
+                            Notifications
+                        </h3>
+                        <button onclick="markAllAsRead()"
+                                class="text-[11px] font-semibold text-brand-700 hover:text-brand-800">
+                            Tout marquer comme lu
+                        </button>
+                    </div>
+                    <div id="notifications-list" class="max-h-96 overflow-y-auto">
+                        <div class="p-8 text-center text-slate-400 text-sm">Chargement...</div>
+                    </div>
+                    <div class="px-5 py-3.5 border-t border-slate-100 text-center bg-slate-50">
+                        <a href="{{ route('admin.notifications.index') }}"
+                           class="text-[12px] font-semibold text-brand-700 hover:text-brand-800">
+                            Voir toutes les notifications
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hidden sm:block w-px h-10 bg-slate-200"></div>
+
+            <div class="flex items-center gap-3 pl-1">
+                <div class="hidden sm:flex flex-col items-end">
+                    <span class="text-[13px] font-semibold text-slate-800 leading-none">
+                        {{ $admin->prenom }} {{ $admin->nom }}
+                    </span>
+                    <span class="text-[11px] text-slate-500 mt-1 leading-none">
+                        Administrateur
+                    </span>
+                </div>
+                <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700
+                            flex items-center justify-center
+                            text-white font-bold text-[14px] shadow-sm
+                            ring-2 ring-brand-100">
+                    {{ $initials }}
+                </div>
+            </div>
+        </div>
+    </header>
+
+    {{-- ZONE DE CONTENU - margin 20px + padding 20px --}}
+    <div class="flex-1" style="margin: 20px; padding: 20px;">
+
+        @yield('content')
+
+    </div>
+</div>
+
+<script>
+    (function() {
+        const sidebar = document.getElementById('sidebar');
+        const mainWrapper = document.getElementById('main-wrapper');
+        const lockIcon = document.getElementById('lock-icon');
+
+        if (!sidebar || !mainWrapper) return;
+
+        let lockState = localStorage.getItem('sidebarLockState') || 'unlocked';
+
+        function applyState() {
+            sidebar.classList.remove('sidebar-locked', 'sidebar-locked-collapsed', 'sidebar-locked-expanded');
+            mainWrapper.classList.remove('sidebar-expanded');
+
+            if (lockState === 'locked-collapsed') {
+                sidebar.classList.add('sidebar-locked', 'sidebar-locked-collapsed');
+                lockIcon.textContent = 'lock';
+            } else if (lockState === 'locked-expanded') {
+                sidebar.classList.add('sidebar-locked', 'sidebar-locked-expanded');
+                mainWrapper.classList.add('sidebar-expanded');
+                lockIcon.textContent = 'lock';
+            } else {
+                lockIcon.textContent = 'lock_open';
+            }
+        }
+
+        sidebar.addEventListener('mouseenter', () => {
+            if (window.innerWidth >= 1024 && lockState === 'unlocked') {
+                mainWrapper.classList.add('sidebar-expanded');
+            }
+        });
+        sidebar.addEventListener('mouseleave', () => {
+            if (window.innerWidth >= 1024 && lockState === 'unlocked') {
+                mainWrapper.classList.remove('sidebar-expanded');
+            }
+        });
+
+        window.toggleSidebarLock = function() {
+            if (lockState === 'unlocked') {
+                lockState = 'locked-collapsed';
+            } else if (lockState === 'locked-collapsed') {
+                lockState = 'locked-expanded';
+            } else {
+                lockState = 'unlocked';
+            }
+
+            localStorage.setItem('sidebarLockState', lockState);
+            applyState();
+        };
+
+        applyState();
+
+        window.addEventListener('resize', () => {
+            if (window.innerWidth < 1024) {
+                mainWrapper.classList.remove('sidebar-expanded');
+            } else if (lockState === 'locked-expanded') {
+                mainWrapper.classList.add('sidebar-expanded');
+            }
+        });
+    })();
+
+    function toggleSidebar() {
+        document.getElementById('sidebar').classList.toggle('-translate-x-full');
+        document.getElementById('sidebar-overlay').classList.toggle('hidden');
+    }
+    function closeSidebar() {
+        document.getElementById('sidebar').classList.add('-translate-x-full');
+        document.getElementById('sidebar-overlay').classList.add('hidden');
+    }
+
+    let notifOpen = false;
+
+    function toggleNotifications() {
+        const dropdown = document.getElementById('notifications-dropdown');
+        notifOpen = !notifOpen;
+
+        if (notifOpen) {
+            dropdown.classList.remove('hidden');
+            chargerNotifications();
+        } else {
+            dropdown.classList.add('hidden');
+        }
+    }
+
+    async function chargerNotifications() {
+        try {
+            const response = await fetch('{{ route("admin.notifications.index") }}', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+            });
+            const data = await response.json();
+
+            const list = document.getElementById('notifications-list');
+            const badge = document.getElementById('notif-badge');
+
+            if (data.non_lues > 0) {
+                badge.textContent = data.non_lues;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+
+            if (data.notifications.length === 0) {
+                list.innerHTML = '<div class="p-8 text-center text-slate-400 text-sm">Aucune notification</div>';
+                return;
+            }
+
+            const icons = {
+                'info':    { color: 'text-blue-600',    bg: 'bg-blue-50' },
+                'success': { color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                'warning': { color: 'text-amber-600',   bg: 'bg-amber-50' },
+                'danger':  { color: 'text-red-600',     bg: 'bg-red-50' },
+            };
+
+            list.innerHTML = data.notifications.map(n => {
+                const style = icons[n.type] || icons.info;
+                const luClass = n.lu ? 'opacity-50' : '';
+                return `
+                    <div class="flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 cursor-pointer
+                                border-b border-slate-50 last:border-0 ${luClass}"
+                         onclick="ouvrirNotification(${n.id}, '${n.lien || ''}')">
+                        <div class="w-9 h-9 rounded-lg ${style.bg} flex items-center justify-center shrink-0">
+                            <span class="material-symbols-rounded ${style.color} text-[18px]">${n.icone}</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-[13px] font-semibold text-slate-800 truncate">${n.titre}</div>
+                            <div class="text-[12px] text-slate-500 mt-0.5 line-clamp-2">${n.message}</div>
+                            <div class="text-[10px] text-slate-400 mt-1">${n.date}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } catch (error) {
+            console.error('Erreur chargement notifications:', error);
+            document.getElementById('notifications-list').innerHTML =
+                '<div class="p-8 text-center text-red-400 text-sm">Erreur de chargement</div>';
+        }
+    }
+
+    async function ouvrirNotification(id, lien) {
+        try {
+            await fetch(`/admin/notifications/${id}/read`, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' }
+            });
+            if (lien) window.location.href = lien;
+            else chargerNotifications();
+        } catch (error) { console.error(error); }
+    }
+
+    async function markAllAsRead() {
+        try {
+            await fetch('{{ route("admin.notifications.read-all") }}', {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' }
+            });
+            chargerNotifications();
+        } catch (error) { console.error(error); }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        fetch('{{ route("admin.notifications.index") }}', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            const badge = document.getElementById('notif-badge');
+            if (data.non_lues > 0) {
+                badge.textContent = data.non_lues;
+                badge.classList.remove('hidden');
+            }
+        })
+        .catch(() => {});
+    });
+
+    document.addEventListener('click', (e) => {
+        const notifBtn = document.querySelector('[onclick="toggleNotifications()"]');
+        const notifDropdown = document.getElementById('notifications-dropdown');
+        if (notifOpen && notifDropdown && notifBtn &&
+            !notifDropdown.contains(e.target) && !notifBtn.contains(e.target)) {
+            notifOpen = false;
+            notifDropdown.classList.add('hidden');
+        }
+    });
+</script>
+@stack('scripts')
+</body>
+</html>
+BLADE;
+    }
+}

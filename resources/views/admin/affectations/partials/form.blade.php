@@ -1,0 +1,162 @@
+<div class="space-y-5">
+
+    {{-- ========== SECTION : AFFECTATION ========== --}}
+    <div class="bg-white border-2 border-slate-300 rounded-lg p-5">
+        <div class="flex items-center gap-2 pb-3 mb-4 border-b-2 border-slate-200">
+            <span class="material-symbols-rounded text-brand-700 text-lg">link</span>
+            <h3 class="text-sm font-bold text-brand-700 uppercase tracking-wide">Affectation</h3>
+        </div>
+
+        <div class="space-y-4">
+
+            {{-- Formateur --}}
+            <div>
+                <label class="block text-sm font-semibold text-slate-900 mb-1.5">
+                    Formateur <span class="text-red-600">*</span>
+                </label>
+                <select name="formateur_id"
+                        class="w-full px-4 py-3 text-base text-slate-900 bg-white
+                               border-2 border-slate-300 rounded-md
+                               transition-all appearance-none cursor-pointer
+                               hover:border-slate-400
+                               focus:outline-none focus:border-brand-700 focus:ring-4 focus:ring-brand-100">
+                    <option value="">- Sélectionner un formateur -</option>
+                    @foreach($formateurs ?? [] as $f)
+                        <option value="{{ $f->id }}" @selected(old('formateur_id', $affectation->formateur_id ?? '') == $f->id)>
+                            {{ $f->nom }} {{ $f->prenom }} ({{ $f->matricule }})
+                        </option>
+                    @endforeach
+                </select>
+                @error('formateur_id')
+                    <p class="text-sm text-red-600 mt-1.5">{{ $message }}</p>
+                @enderror
+            </div>
+
+            {{-- Filière --}}
+            <div>
+                <label class="block text-sm font-semibold text-slate-900 mb-1.5">
+                    Filière <span class="text-red-600">*</span>
+                </label>
+                <select name="filiere_id"
+                        class="w-full px-4 py-3 text-base text-slate-900 bg-white
+                               border-2 border-slate-300 rounded-md
+                               transition-all appearance-none cursor-pointer
+                               hover:border-slate-400
+                               focus:outline-none focus:border-brand-700 focus:ring-4 focus:ring-brand-100">
+                    <option value="">- Sélectionner une filière -</option>
+                    @foreach($filieres ?? [] as $f)
+                        <option value="{{ $f->id }}" @selected(old('filiere_id', $affectation->filiere_id ?? '') == $f->id)>
+                            {{ $f->libelle }} ({{ $f->code }})
+                        </option>
+                    @endforeach
+                </select>
+                @error('filiere_id')
+                    <p class="text-sm text-red-600 mt-1.5">{{ $message }}</p>
+                @enderror
+            </div>
+
+            {{-- Établissement --}}
+            <div>
+                <label class="block text-sm font-semibold text-slate-900 mb-1.5">
+                    Établissement <span class="text-red-600">*</span>
+                </label>
+                <select name="etablissement_id"
+                        class="w-full px-4 py-3 text-base text-slate-900 bg-white
+                               border-2 border-slate-300 rounded-md
+                               transition-all appearance-none cursor-pointer
+                               hover:border-slate-400
+                               focus:outline-none focus:border-brand-700 focus:ring-4 focus:ring-brand-100">
+                    <option value="">- Sélectionner un établissement -</option>
+                    @foreach($etablissements ?? [] as $e)
+                        <option value="{{ $e->id }}" @selected(old('etablissement_id', $affectation->etablissement_id ?? '') == $e->id)>
+                            {{ $e->nom }} ({{ $e->code }})
+                        </option>
+                    @endforeach
+                </select>
+                @error('etablissement_id')
+                    <p class="text-sm text-red-600 mt-1.5">{{ $message }}</p>
+                @enderror
+            </div>
+
+        </div>
+    </div>
+
+    {{-- ========== SECTION : PÉRIODE ========== --}}
+    <div class="bg-white border-2 border-slate-300 rounded-lg p-5">
+        <div class="flex items-center gap-2 pb-3 mb-4 border-b-2 border-slate-200">
+            <span class="material-symbols-rounded text-brand-700 text-lg">event</span>
+            <h3 class="text-sm font-bold text-brand-700 uppercase tracking-wide">Période</h3>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            <div>
+                <label class="block text-sm font-semibold text-slate-900 mb-1.5">
+                    Date de début <span class="text-red-600">*</span>
+                </label>
+                <input type="date" name="date_debut"
+                       value="{{ old('date_debut', isset($affectation) && $affectation->date_debut ? $affectation->date_debut->format('Y-m-d') : '') }}"
+                       class="w-full px-4 py-3 text-base text-slate-900 bg-white
+                              border-2 border-slate-300 rounded-md
+                              transition-all cursor-pointer
+                              hover:border-slate-400
+                              focus:outline-none focus:border-brand-700 focus:ring-4 focus:ring-brand-100"
+                       required>
+                @error('date_debut')
+                    <p class="text-sm text-red-600 mt-1.5">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <div>
+                <label class="block text-sm font-semibold text-slate-900 mb-1.5">Date de fin</label>
+                <input type="date" name="date_fin"
+                       value="{{ old('date_fin', isset($affectation) && $affectation->date_fin ? $affectation->date_fin->format('Y-m-d') : '') }}"
+                       class="w-full px-4 py-3 text-base text-slate-900 bg-white
+                              border-2 border-slate-300 rounded-md
+                              transition-all cursor-pointer
+                              hover:border-slate-400
+                              focus:outline-none focus:border-brand-700 focus:ring-4 focus:ring-brand-100">
+                @error('date_fin')
+                    <p class="text-sm text-red-600 mt-1.5">{{ $message }}</p>
+                @enderror
+                <p class="text-xs text-slate-500 mt-1.5">Laisser vide si en cours</p>
+            </div>
+
+        </div>
+    </div>
+
+    {{-- ========== SECTION : STATUT (SELECT) ========== --}}
+    <div class="bg-white border-2 border-slate-300 rounded-lg p-5">
+        <div class="flex items-center gap-2 pb-3 mb-4 border-b-2 border-slate-200">
+            <span class="material-symbols-rounded text-brand-700 text-lg">toggle_on</span>
+            <h3 class="text-sm font-bold text-brand-700 uppercase tracking-wide">Statut</h3>
+        </div>
+
+        <div>
+            <label class="block text-sm font-semibold text-slate-900 mb-1.5">
+                Statut de l'affectation <span class="text-red-600">*</span>
+            </label>
+            <select name="statut"
+                    class="w-full px-4 py-3 text-base text-slate-900 bg-white
+                           border-2 border-slate-300 rounded-md
+                           transition-all appearance-none cursor-pointer
+                           hover:border-slate-400
+                           focus:outline-none focus:border-brand-700 focus:ring-4 focus:ring-brand-100"
+                    required>
+                <option value="actif" @selected(old('statut', $affectation->statut ?? 'actif') === 'actif')>
+                    Actif - Le formateur est en activité
+                </option>
+                <option value="suspendu" @selected(old('statut', $affectation->statut ?? '') === 'suspendu')>
+                    Suspendu - Le formateur est en pause
+                </option>
+                <option value="termine" @selected(old('statut', $affectation->statut ?? '') === 'termine')>
+                    Terminé - L'affectation est terminée
+                </option>
+            </select>
+            @error('statut')
+                <p class="text-sm text-red-600 mt-1.5">{{ $message }}</p>
+            @enderror
+        </div>
+    </div>
+
+</div>

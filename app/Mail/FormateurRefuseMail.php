@@ -1,0 +1,23 @@
+<?php
+
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Queue\SerializesModels;
+
+class FormateurRefuseMail extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    public function __construct(
+        public $formateur,
+        public ?string $motif = null
+    ) {}
+
+    public function build()
+    {
+        return $this->subject('[X] Votre inscription - SG Formateurs')
+                    ->view('emails.formateur-refuse');
+    }
+}

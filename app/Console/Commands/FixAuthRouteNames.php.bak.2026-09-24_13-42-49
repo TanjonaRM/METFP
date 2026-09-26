@@ -1,0 +1,147 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+
+class FixAuthRouteNames extends Command
+{
+    protected $signature = 'routes:fix-auth-names
+                            {--dry-run : Afficher les modifications sans les appliquer}
+                            {--force : Ne pas demander de confirmation}';
+
+    protected $description = 'Ajoute les noms manquants aux routes POST /login et POST /register dans routes/auth.php';
+
+    public function handle(): int
+    {
+        $this->newLine();
+        $this->line('╔══════════════════════════════════════════════════════╗');
+        $this->line('║   CORRECTION DES NOMS DE ROUTES AUTH                ║');
+        $this->line('╚══════════════════════════════════════════════════════╝');
+        $this->newLine();
+
+        $path = base_path('routes/auth.php');
+
+        if (!file_exists($path)) {
+            $this->error("❌ Fichier introuvable : {$path}");
+            return self::FAILURE;
+        }
+
+        // Sauvegarde
+        $backup = $path . '.bak.' . date('Y-m-d_H-i-s');
+        copy($path, $backup);
+        $this->line("💾 Sauvegarde créée : " . basename($backup));
+        $this->newLine();
+
+        $content = file_get_contents($path);
+        $original = $content;
+
+        $replacements = [];
+
+        // ============================================================
+        // ADMIN
+        // ============================================================
+        // POST /login (admin)
+        $content = preg_replace_callback(
+            '/(Route::post\(\s*[\'"]\/login[\'"]\s*,\s*\[AdminLogin::class\s*,\s*[\'"]login[\'"]\])(\s*\))(?!\s*->name)/m',
+            function ($m) use (&$replacements) {
+                $replacements[] = 'admin → POST /login       + ->name(\'login.submit\')';
+                return $m[1] . $m[2] . '->name(\'login.submit\')';
+            },
+            $content
+        );
+
+        // POST /register (admin)
+        $content = preg_replace_callback(
+            '/(Route::post\(\s*[\'"]\/register[\'"]\s*,\s*\[AdminRegister::class\s*,\s*[\'"]register[\'"]\])(\s*\))(?!\s*->name)/m',
+            function ($m) use (&$replacements) {
+                $replacements[] = 'admin → POST /register    + ->name(\'register.submit\')';
+                return $m[1] . $m[2] . '->name(\'register.submit\')';
+            },
+            $content
+        );
+
+        // ============================================================
+        // FORMATEUR
+        // ============================================================
+        // POST /login (formateur)
+        $content = preg_replace_callback(
+            '/(Route::post\(\s*[\'"]\/login[\'"]\s*,\s*\[FormateurLogin::class\s*,\s*[\'"]login[\'"]\])(\s*\))(?!\s*->name)/m',
+            function ($m) use (&$replacements) {
+                $replacements[] = 'formateur → POST /login    + ->name(\'login.submit\')';
+                return $m[1] . $m[2] . '->name(\'login.submit\')';
+            },
+            $content
+        );
+
+        // POST /register (formateur)
+        $content = preg_replace_callback(
+            '/(Route::post\(\s*[\'"]\/register[\'"]\s*,\s*\[FormateurRegister::class\s*,\s*[\'"]register[\'"]\])(\s*\))(?!\s*->name)/m',
+            function ($m) use (&$replacements) {
+                $replacements[] = 'formateur → POST /register + ->name(\'register.submit\')';
+                return $m[1] . $m[2] . '->name(\'register.submit\')';
+            },
+            $content
+        );
+
+        // ============================================================
+        // RÉSULTAT
+        // ============================================================
+        if ($content === $original) {
+            $this->warn('🛈 Aucune modification nécessaire (routes déjà nommées ou pattern non trouvé).');
+            @unlink($backup);
+            return self::SUCCESS;
+        }
+
+        $this->info('📝 Modifications détectées :');
+        foreach ($replacements as $r) {
+            $this->line("   ✅ {$r}");
+        }
+        $this->newLine();
+
+        // Mode dry-run
+        if ($this->option('dry-run')) {
+            $this->warn('🛈 Mode --dry-run : aucune modification appliquée.');
+            $this->line('   La sauvegarde ' . basename($backup) . ' a été supprimée.');
+            @unlink($backup);
+            $this->newLine();
+            $this->line('Pour appliquer : <fg=cyan>php artisan routes:fix-auth-names</>');
+            return self::SUCCESS;
+        }
+
+        // Confirmation
+        if (!$this->option('force') && !$this->confirm('Appliquer ces modifications ?', true)) {
+            @unlink($backup);
+            $this->info('Opération annulée.');
+            return self::SUCCESS;
+        }
+
+        // Écriture
+        file_put_contents($path, $content);
+
+        $this->info('✅ Fichier routes/auth.php mis à jour.');
+        $this->line('💾 Sauvegarde conservée : ' . $backup);
+        $this->newLine();
+
+        // Vérification syntaxique
+        $output = shell_exec('php -l ' . escapeshellarg($path) . ' 2>&1');
+        if ($output && str_contains($output, 'No syntax errors')) {
+            $this->info('✅ Syntaxe PHP valide.');
+        } else {
+            $this->error('❌ Erreur de syntaxe après modification !');
+            $this->line($output);
+            $this->warn('Restauration depuis la sauvegarde...');
+            copy($backup, $path);
+            $this->info('✅ Fichier restauré.');
+            return self::FAILURE;
+        }
+
+        $this->newLine();
+        $this->info('🎯 Prochaines étapes :');
+        $this->line('   1. php artisan route:clear');
+        $this->line('   2. php artisan routes:fix-duplicates --dry-run');
+        $this->line('   3. php artisan project:check');
+
+        return self::SUCCESS;
+    }
+}

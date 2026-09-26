@@ -1,0 +1,85 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class RemoveProfileSidebar extends Command
+{
+    protected $signature = 'project:remove-profile-sidebar
+                            {--backup : Sauvegarder le fichier existant (.bak)}
+                            {--force : Écraser sans confirmation}';
+
+    protected $description = 'Supprime l\'entrée "Mon profil" de la sidebar formateur';
+
+    public function handle(): int
+    {
+        $this->info("[DEL]️  Suppression de 'Mon profil' de la sidebar formateur");
+        $this->newLine();
+
+        $path = 'resources/views/layouts/formateur.blade.php';
+        $fullPath = base_path($path);
+
+        if (!File::exists($fullPath)) {
+            $this->error("[X] Fichier introuvable : {$path}");
+            return self::FAILURE;
+        }
+
+        if ($this->option('backup')) {
+            $backupPath = $fullPath . '.bak.' . date('Y-m-d_H-i-s');
+            File::copy($fullPath, $backupPath);
+            $this->line("  [SAVE] Backup : " . basename($backupPath));
+        }
+
+        $content = File::get($fullPath);
+        $originalSize = strlen($content);
+
+        // ============================================================
+        // 1. Supprimer la section "Mon compte" (label)
+        // ============================================================
+        $content = preg_replace(
+            "/\[\s*'section'\s*=>\s*'Mon compte'\s*\],?\s*\n/",
+            '',
+            $content
+        );
+
+        // ============================================================
+        // 2. Supprimer l'item "Mon profil" du tableau $menu
+        // ============================================================
+        $profilePattern = "/\[\s*\n\s*'route'\s*=>\s*'formateur\.profile\.\*',\s*\n\s*'url'\s*=>\s*'formateur\.profile\.edit',\s*\n\s*'icon'\s*=>\s*'person',\s*\n\s*'label'\s*=>\s*'Mon profil',\s*\n\s*\],\s*\n/s";
+
+        if (preg_match($profilePattern, $content)) {
+            $content = preg_replace($profilePattern, '', $content);
+            $this->line("  [OK] Item 'Mon profil' supprimé du menu");
+        } else {
+            // Fallback : pattern plus souple
+            $fallback = "/\s*\[\s*'route'\s*=>\s*'formateur\.profile\.\*'[^\]]*\],/s";
+            if (preg_match($fallback, $content)) {
+                $content = preg_replace($fallback, '', $content);
+                $this->line("  [OK] Item 'Mon profil' supprimé (fallback)");
+            } else {
+                $this->warn("  [!]️  Item 'Mon profil' non trouvé");
+            }
+        }
+
+        // Nettoyer les lignes vides multiples
+        $content = preg_replace('/\n{3,}/', "\n\n", $content);
+
+        File::put($fullPath, $content);
+
+        $newSize = strlen($content);
+        $saved = $originalSize - $newSize;
+        $this->line("  [OK] {$path} mis à jour (-{$saved} octets)");
+
+        $this->newLine();
+        $this->info("[CLEAN] Nettoyage des caches...");
+        $this->call('view:clear');
+        $this->call('cache:clear');
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS : 'Mon profil' supprimé de la sidebar");
+
+        return self::SUCCESS;
+    }
+}

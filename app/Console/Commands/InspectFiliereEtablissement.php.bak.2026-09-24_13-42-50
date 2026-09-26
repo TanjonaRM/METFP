@@ -1,0 +1,199 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Route;
+
+class InspectFiliereEtablissement extends Command
+{
+    protected $signature = 'inspect:filiere-etablissement';
+    protected $description = 'Inspecte les fichiers Filière et Établissement';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('╔══════════════════════════════════════════════════════════╗');
+        $this->line('║   🔍 INSPECTION FILIÈRE & ÉTABLISSEMENT                   ║');
+        $this->line('╚══════════════════════════════════════════════════════════╝');
+
+        $this->inspectModule('Filiere', 'Filieres');
+        $this->inspectModule('Etablissement', 'Etablissements');
+
+        return self::SUCCESS;
+    }
+
+    private function inspectModule(string $singular, string $plural): void
+    {
+        $this->line('');
+        $this->line('═══════════════════════════════════════════════════════════');
+        $this->line("📦 MODULE : {$singular}");
+        $this->line('═══════════════════════════════════════════════════════════');
+
+        // ─────────────────────────────────────────────
+        // 1. ROUTES
+        // ─────────────────────────────────────────────
+        $this->line('');
+        $this->line('▶ 1. Routes');
+        $this->line(str_repeat('─', 60));
+
+        $lowerPlural = strtolower($plural);
+        $routes = collect(Route::getRoutes())->filter(function ($r) use ($lowerPlural) {
+            return str_contains(strtolower($r->uri()), $lowerPlural)
+                && !str_contains($r->uri(), 'pdf');
+        });
+
+        foreach ($routes->sortBy('uri') as $route) {
+            $methods = implode('|', array_diff($route->methods(), ['HEAD']));
+            $this->line(sprintf(
+                "   %-10s %-45s",
+                $methods,
+                $route->uri()
+            ));
+            $this->line(sprintf(
+                "   %-10s → %s",
+                '',
+                $route->getActionName()
+            ));
+            $this->line('');
+        }
+
+        // ─────────────────────────────────────────────
+        // 2. CONTROLLER
+        // ─────────────────────────────────────────────
+        $this->line('▶ 2. Controller');
+        $this->line(str_repeat('─', 60));
+
+        $controllerPath = app_path("Http/Controllers/Admin/{$singular}Controller.php");
+        if (File::exists($controllerPath)) {
+            $size = File::size($controllerPath);
+            $this->info("   ✅ {$singular}Controller.php ({$size} octets)");
+
+            $content = File::get($controllerPath);
+
+            // Méthodes publiques
+            preg_match_all('/public function (\w+)\s*\(/', $content, $m);
+            $this->line('   Méthodes : ' . implode(', ', $m[1]));
+        } else {
+            $this->error("   ❌ {$singular}Controller.php introuvable");
+        }
+
+        // ─────────────────────────────────────────────
+        // 3. VUES
+        // ─────────────────────────────────────────────
+        $this->line('');
+        $this->line('▶ 3. Vues');
+        $this->line(str_repeat('─', 60));
+
+        $viewsDir = resource_path("views/admin/{$lowerPlural}");
+        if (File::exists($viewsDir)) {
+            foreach (File::allFiles($viewsDir) as $file) {
+                $size = File::size($file->getPathname());
+                $rel = str_replace($viewsDir . DIRECTORY_SEPARATOR, '', $file->getPathname());
+
+                if (str_contains($rel, '.bak')) {
+                    $this->warn("   ⚠️  {$rel} ({$size} octets) — .bak");
+                } elseif ($size === 0) {
+                    $this->error("   ❌ {$rel} — VIDE");
+                } else {
+                    $this->info("   ✅ {$rel} ({$size} octets)");
+                }
+            }
+
+            // Analyser index.blade.php
+            $indexPath = $viewsDir . '/index.blade.php';
+            if (File::exists($indexPath)) {
+                $this->line('');
+                $this->line('   📌 Analyse de index.blade.php :');
+                $content = File::get($indexPath);
+
+                $checks = [
+                    'openModal'           => 'Fonction openModal',
+                    'Ajouter'             => 'Bouton Ajouter',
+                    'Chargement'          => 'Spinner de chargement',
+                    'fetch('              => 'Appel AJAX',
+                    'id="'                => 'IDs HTML',
+                ];
+
+                foreach ($checks as $needle => $label) {
+                    if (stripos($content, $needle) !== false) {
+                        $this->info("      ✅ {$label}");
+                    } else {
+                        $this->line("      ⚪ {$label}");
+                    }
+                }
+            }
+        } else {
+            $this->error("   ❌ Dossier introuvable : {$viewsDir}");
+        }
+
+        // ─────────────────────────────────────────────
+        // 4. FORM REQUESTS
+        // ─────────────────────────────────────────────
+        $this->line('');
+        $this->line('▶ 4. Form Requests');
+        $this->line(str_repeat('─', 60));
+
+        $requests = [
+            "app/Http/Requests/{$singular}/Store{$singular}Request.php",
+            "app/Http/Requests/{$singular}/Update{$singular}Request.php",
+        ];
+
+        foreach ($requests as $rel) {
+            $path = base_path($rel);
+            if (File::exists($path)) {
+                $size = File::size($path);
+                $this->info("   ✅ " . basename($rel) . " ({$size} octets)");
+            } else {
+                $this->warn("   ⚠️  " . basename($rel) . " introuvable");
+            }
+        }
+
+        // ─────────────────────────────────────────────
+        // 5. MODÈLE
+        // ─────────────────────────────────────────────
+        $this->line('');
+        $this->line('▶ 5. Modèle Eloquent');
+        $this->line(str_repeat('─', 60));
+
+        $modelPath = app_path("Infrastructure/Persistence/Eloquent/Models/{$singular}Model.php");
+        if (File::exists($modelPath)) {
+            $size = File::size($modelPath);
+            $content = File::get($modelPath);
+            $this->info("   ✅ {$singular}Model.php ({$size} octets)");
+
+            // Extraire $fillable
+            if (preg_match('/\$fillable\s*=\s*\[([^\]]+)\]/s', $content, $m)) {
+                $fields = array_map('trim', explode(',', $m[1]));
+                $this->line('   Champs $fillable :');
+                foreach ($fields as $f) {
+                    if (!empty($f)) $this->line("      • {$f}");
+                }
+            }
+        } else {
+            $this->error("   ❌ {$singular}Model.php introuvable");
+        }
+
+        // ─────────────────────────────────────────────
+        // 6. TABLE DB
+        // ─────────────────────────────────────────────
+        $this->line('');
+        $this->line('▶ 6. Table en base');
+        $this->line(str_repeat('─', 60));
+
+        $tableName = $lowerPlural;
+        try {
+            if (\Schema::hasTable($tableName)) {
+                $count = \DB::table($tableName)->count();
+                $columns = \Schema::getColumnListing($tableName);
+                $this->info("   ✅ Table '{$tableName}' : {$count} ligne(s)");
+                $this->line('   Colonnes : ' . implode(', ', $columns));
+            } else {
+                $this->error("   ❌ Table '{$tableName}' introuvable");
+            }
+        } catch (\Throwable $e) {
+            $this->error('   ❌ Erreur DB : ' . $e->getMessage());
+        }
+    }
+}

@@ -1,0 +1,53 @@
+@extends('layouts.admin')
+@section('title', 'Détails du niveau')
+
+@section('content')
+<div class="flex items-center gap-4 mb-8">
+    <a href="{{ route('admin.niveaux.index') }}" class="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:text-primary-700 transition">
+        <span class="material-symbols-rounded">arrow_back</span>
+    </a>
+    <h1 class="font-display text-3xl font-bold text-slate-900">Détails du niveau</h1>
+</div>
+
+<div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+    <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Libellé</p>
+            <p class="font-semibold text-slate-900">{{ $niveau->libelle }}</p>
+        </div>
+        <div>
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Code</p>
+            <p class="font-semibold text-slate-900 font-mono">{{ $niveau->code }}</p>
+        </div>
+        <div class="md:col-span-2">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Description</p>
+            <p class="text-slate-700">{{ $niveau->description ?? 'Aucune description' }}</p>
+        </div>
+    </div>
+</div>
+
+<div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+    <div class="px-8 py-6 border-b border-slate-100 bg-slate-50/50">
+        <h3 class="font-display font-bold text-lg text-slate-900">
+            Filières rattachées ({{ $niveau->filieres->count() ?? 0 }})
+        </h3>
+    </div>
+    <div class="p-4">
+        @forelse($niveau->filieres ?? [] as $f)
+            <div class="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition">
+                <div>
+                    <p class="font-semibold text-slate-900 text-sm">{{ $f->libelle }}</p>
+                    <p class="text-xs text-slate-500 font-mono">{{ $f->code }}</p>
+                </div>
+                <a href="{{ route('admin.filieres.show', $f->id) }}" class="text-primary-700 hover:text-primary-500 text-sm font-semibold">Voir →</a>
+            </div>
+        @empty
+            <p class="text-sm text-slate-500 p-4">Aucune filière rattachée.</p>
+        @endforelse
+    </div>
+</div>
+
+<a href="{{ route('admin.niveaux.edit', $niveau->id) }}" class="btn btn-primary">
+    <span class="material-symbols-rounded text-[18px]">edit</span>Modifier
+</a>
+@endsection

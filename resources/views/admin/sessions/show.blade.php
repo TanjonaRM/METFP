@@ -1,0 +1,87 @@
+@extends('layouts.admin')
+@section('title', 'Détail session')
+
+@section('content')
+
+<div class="mb-6">
+    <a href="{{ route('admin.sessions.index') }}"
+       class="inline-flex items-center gap-1 text-[12px] text-slate-500 hover:text-brand-700 mb-2">
+        <span class="material-symbols-rounded text-[16px]">arrow_back</span>
+        Retour à la liste
+    </a>
+    <h1 class="font-display text-2xl font-bold text-slate-900">Détail de la session</h1>
+    <p class="text-sm text-slate-500 mt-1 font-mono">{{ $session->code }}</p>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+
+    {{-- Formateur --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Formateur</div>
+        <div class="flex items-center gap-3 mb-3">
+            <div class="avatar avatar-md avatar-primary">
+                {{ strtoupper(substr($session->formateur->prenom ?? 'U', 0, 1) . substr($session->formateur->nom ?? 'N', 0, 1)) }}
+            </div>
+            <div>
+                <div class="font-semibold">{{ $session->formateur->nom ?? '-' }} {{ $session->formateur->prenom ?? '' }}</div>
+                <div class="text-[11px] text-slate-500 font-mono">{{ $session->formateur->matricule ?? '' }}</div>
+            </div>
+        </div>
+        <a href="{{ route('admin.formateurs.show', $session->formateur->id ?? 0) }}"
+           class="text-[12px] font-semibold text-brand-700 hover:text-brand-800 inline-flex items-center gap-1">
+            Voir le profil
+            <span class="material-symbols-rounded text-[14px]">arrow_forward</span>
+        </a>
+    </div>
+
+    {{-- Filière --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Filière</div>
+        <div class="font-semibold">{{ $session->filiere->libelle ?? '-' }}</div>
+        <div class="text-[11px] text-slate-500 font-mono">{{ $session->filiere->code ?? '' }}</div>
+    </div>
+
+    {{-- Établissement --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Établissement</div>
+        <div class="font-semibold">{{ $session->etablissement->nom ?? '-' }}</div>
+        <div class="text-[11px] text-slate-500">{{ $session->etablissement->region ?? '' }}</div>
+    </div>
+
+    {{-- Période --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Période</div>
+        <div class="text-sm">
+            Du <strong>{{ $session->date_debut?->format('d/m/Y') }}</strong><br>
+            au <strong>{{ $session->date_fin?->format('d/m/Y') ?? 'En cours' }}</strong>
+        </div>
+    </div>
+
+    {{-- Statut --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="text-[11px] font-bold text-slate-500 uppercase mb-3">Statut</div>
+        @if($session->estEnCours())
+            <span class="badge-success">En cours</span>
+        @elseif($session->estTerminee() || $session->statut === 'terminee')
+            <span class="badge-gray">Terminée</span>
+        @elseif($session->statut === 'annulee')
+            <span class="badge-danger">Annulée</span>
+        @else
+            <span class="badge-info">À venir</span>
+        @endif
+    </div>
+
+</div>
+
+@if($session->titre || $session->description)
+<div class="bg-white rounded-xl border border-slate-200 p-5">
+    @if($session->titre)
+        <div class="font-semibold text-slate-800 mb-2">{{ $session->titre }}</div>
+    @endif
+    @if($session->description)
+        <p class="text-sm text-slate-600">{{ $session->description }}</p>
+    @endif
+</div>
+@endif
+
+@endsection

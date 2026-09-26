@@ -1,0 +1,1521 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+
+class InstallNotificationRedirectWorkflow extends Command
+{
+    protected $signature = 'project:install-notification-redirect-workflow
+                            {--backup : Sauvegarder les fichiers (.bak)}
+                            {--force : Écraser sans confirmation}';
+
+    protected $description = 'Installe le workflow complet : notifications -> redirection vers onglets Demandes';
+
+    public function handle(): int
+    {
+        $this->info("[RELOAD] Installation du workflow de redirection notifications");
+        $this->newLine();
+
+        if (!$this->option('force') && !$this->confirm('Installer le workflow complet ?', true)) {
+            $this->warn('Annulé.');
+            return self::FAILURE;
+        }
+
+        // ============================================================
+        // 1. NotificationService
+        // ============================================================
+        $this->writeFile(
+            'app/Services/NotificationService.php',
+            $this->getNotificationService()
+        );
+        $this->line("  [OK] NotificationService");
+
+        // ============================================================
+        // 2. NotificationController (admin)
+        // ============================================================
+        $this->writeFile(
+            'app/Http/Controllers/Admin/NotificationController.php',
+            $this->getNotificationController()
+        );
+        $this->line("  [OK] NotificationController");
+
+        // ============================================================
+        // 3. Vue Affectations (avec onglets + auto-ouverture)
+        // ============================================================
+        $this->writeFile(
+            'resources/views/admin/affectations/index.blade.php',
+            $this->getAffectationsView()
+        );
+        $this->line("  [OK] Vue affectations/index");
+
+        // ============================================================
+        // 4. Vue Sessions (avec onglets + auto-ouverture)
+        // ============================================================
+        $this->writeFile(
+            'resources/views/admin/sessions/index.blade.php',
+            $this->getSessionsView()
+        );
+        $this->line("  [OK] Vue sessions/index");
+
+        // ============================================================
+        // 5. Contrôleur AffectationController
+        // ============================================================
+        $this->writeFile(
+            'app/Http/Controllers/Admin/AffectationController.php',
+            $this->getAffectationController()
+        );
+        $this->line("  [OK] AffectationController");
+
+        // ============================================================
+        // 6. Contrôleur SessionController
+        // ============================================================
+        $this->writeFile(
+            'app/Http/Controllers/Admin/SessionController.php',
+            $this->getSessionController()
+        );
+        $this->line("  [OK] SessionController");
+
+        // ============================================================
+        // 7. Nettoyer les caches
+        // ============================================================
+        $this->newLine();
+        $this->info("[CLEAN] Nettoyage des caches...");
+        $this->call('view:clear');
+        $this->call('cache:clear');
+        $this->call('route:clear');
+
+        $this->newLine();
+        $this->info("✨ SUCCÈS : Workflow installé");
+        $this->line("  * Notifications -> /admin/affectations?tab=demandes");
+        $this->line("  * Notifications -> /admin/sessions?tab=demandes");
+        $this->line("  * Onglet Demandes auto-activé");
+        $this->line("  * Page détail notification -> redirection onglet");
+
+        return self::SUCCESS;
+    }
+
+    protected function writeFile(string $relativePath, string $content): void
+    {
+        $fullPath = base_path($relativePath);
+
+        if (!File::exists(dirname($fullPath))) {
+            File::makeDirectory(dirname($fullPath), 0755, true);
+        }
+
+        if ($this->option('backup') && File::exists($fullPath)) {
+            File::copy($fullPath, $fullPath . '.bak.' . date('Y-m-d_H-i-s'));
+        }
+
+        File::put($fullPath, $content);
+    }
+
+    // ============================================================
+    // 1. NOTIFICATION SERVICE
+    // ============================================================
+    protected function getNotificationService(): string
+    {
+        return <<<'PHP'
+<?php
+
+namespace App\Services;
+
+use App\Models\Notification;
+use Infrastructure\Persistence\Eloquent\Models\DemandeAffectationModel;
+use Infrastructure\Persistence\Eloquent\Models\DemandeSessionModel;
+
+class NotificationService
+{
+    /**
+     * Nouvelle demande d'affectation créée
+     */
+    public static function demandeAffectationCreee(DemandeAffectationModel $demande): void
+    {
+        Notification::create([
+            'user_id' => null,
+            'titre'   => '[LIST] Nouvelle demande d\'affectation',
+            'message' => ($demande->formateur->prenom ?? '') . ' ' . ($demande->formateur->nom ?? '')
+                . ' (' . ($demande->formateur->matricule ?? '') . ') a soumis une demande d\'affectation.'
+                . ($demande->filiere ? ' - Filière : ' . $demande->filiere->libelle : ''),
+            'type'    => 'info',
+            'icone'   => 'assignment',
+            'lu'      => false,
+            'lien'    => '/admin/affectations?tab=demandes',
+            'data'    => json_encode([
+                'demande_id'   => $demande->id,
+                'formateur_id' => $demande->formateur_id,
+                'type'         => 'demande_affectation',
+            ]),
+        ]);
+    }
+
+    /**
+     * Nouvelle demande de session créée
+     */
+    public static function demandeSessionCreee(DemandeSessionModel $demande): void
+    {
+        Notification::create([
+            'user_id' => null,
+            'titre'   => '📅 Nouvelle demande de session',
+            'message' => ($demande->formateur->prenom ?? '') . ' ' . ($demande->formateur->nom ?? '')
+                . ' (' . ($demande->formateur->matricule ?? '') . ') a soumis une demande de session.'
+                . ($demande->titre ? ' - ' . $demande->titre : ''),
+            'type'    => 'info',
+            'icone'   => 'event',
+            'lu'      => false,
+            'lien'    => '/admin/sessions?tab=demandes',
+            'data'    => json_encode([
+                'demande_id'   => $demande->id,
+                'formateur_id' => $demande->formateur_id,
+                'type'         => 'demande_session',
+            ]),
+        ]);
+    }
+
+    /**
+     * Demande d'affectation traitée -> notification au formateur
+     */
+    public static function demandeAffectationTraitee(DemandeAffectationModel $demande): void
+    {
+        $approuvee = $demande->statut === DemandeAffectationModel::STATUT_APPROUVEE;
+
+        Notification::create([
+            'user_id' => $demande->formateur_id,
+            'titre'   => $approuvee
+                ? '[OK] Votre demande d\'affectation est approuvée'
+                : '[X] Votre demande d\'affectation est refusée',
+            'message' => ($approuvee
+                    ? 'Votre demande a été approuvée par l\'administration.'
+                    : 'Votre demande a été refusée par l\'administration.')
+                . ($demande->reponse_admin ? "\n\nRéponse : " . $demande->reponse_admin : ''),
+            'type'    => $approuvee ? 'success' : 'danger',
+            'icone'   => $approuvee ? 'check_circle' : 'cancel',
+            'lu'      => false,
+            'lien'    => '/formateur/demandes',
+            'data'    => json_encode([
+                'demande_id' => $demande->id,
+                'statut'     => $demande->statut,
+                'type'       => 'reponse_affectation',
+            ]),
+        ]);
+    }
+
+    /**
+     * Demande de session traitée -> notification au formateur
+     */
+    public static function demandeSessionTraitee(DemandeSessionModel $demande): void
+    {
+        $approuvee = $demande->statut === DemandeSessionModel::STATUT_APPROUVEE;
+
+        Notification::create([
+            'user_id' => $demande->formateur_id,
+            'titre'   => $approuvee
+                ? '[OK] Votre demande de session est approuvée'
+                : '[X] Votre demande de session est refusée',
+            'message' => ($approuvee
+                    ? 'Votre demande de session a été approuvée.'
+                    : 'Votre demande de session a été refusée.')
+                . ($demande->reponse_admin ? "\n\nRéponse : " . $demande->reponse_admin : ''),
+            'type'    => $approuvee ? 'success' : 'danger',
+            'icone'   => $approuvee ? 'event_available' : 'event_busy',
+            'lu'      => false,
+            'lien'    => '/formateur/sessions',
+            'data'    => json_encode([
+                'demande_id' => $demande->id,
+                'statut'     => $demande->statut,
+                'type'       => 'reponse_session',
+            ]),
+        ]);
+    }
+}
+PHP;
+    }
+
+    // ============================================================
+    // 2. NOTIFICATION CONTROLLER
+    // ============================================================
+    protected function getNotificationController(): string
+    {
+        return <<<'PHP'
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Notification;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+
+class NotificationController extends Controller
+{
+    public function index(Request $request)
+    {
+        $query = Notification::query()
+            ->where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->latest();
+
+        if ($request->filled('statut')) {
+            if ($request->statut === 'non_lues') $query->where('lu', false);
+            elseif ($request->statut === 'lues') $query->where('lu', true);
+        }
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function ($q) use ($s) {
+                $q->where('titre', 'like', "%{$s}%")
+                  ->orWhere('message', 'like', "%{$s}%");
+            });
+        }
+
+        $notifications = $query->paginate(20)->withQueryString();
+
+        $baseQuery = Notification::where(function ($q) {
+            $q->whereNull('user_id')
+              ->orWhere('user_id', Auth::guard('admin')->id());
+        });
+
+        $stats = [
+            'total'    => (clone $baseQuery)->count(),
+            'non_lues' => (clone $baseQuery)->where('lu', false)->count(),
+            'lues'     => (clone $baseQuery)->where('lu', true)->count(),
+        ];
+
+        return view('admin.notifications.index', compact('notifications', 'stats'));
+    }
+
+    public function count()
+    {
+        $nonLues = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->where('lu', false)
+            ->count();
+
+        return response()->json(['non_lues' => $nonLues]);
+    }
+
+    public function recent()
+    {
+        $notifications = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->latest()
+            ->take(15)
+            ->get()
+            ->map(fn($n) => [
+                'id'      => $n->id,
+                'titre'   => $n->titre,
+                'message' => $n->message,
+                'type'    => $n->type,
+                'icone'   => $n->icone ?? 'notifications',
+                'lu'      => (bool) $n->lu,
+                'lien'    => $n->lien,
+                'date'    => $n->created_at?->diffForHumans(),
+            ]);
+
+        $nonLues = Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->where('lu', false)
+            ->count();
+
+        return response()->json([
+            'notifications' => $notifications,
+            'non_lues'      => $nonLues,
+        ]);
+    }
+
+    /**
+     * [AJAX] REDIRECTION AUTOMATIQUE vers l'onglet concerné
+     */
+    public function show(int $id)
+    {
+        $notification = Notification::findOrFail($id);
+
+        if (!$notification->lu) {
+            $notification->update(['lu' => true]);
+        }
+
+        // Décoder les données
+        $data = is_string($notification->data)
+            ? json_decode($notification->data, true)
+            : $notification->data;
+
+        // [AJAX] Redirection selon le type
+        if (isset($data['type'])) {
+            if ($data['type'] === 'demande_affectation') {
+                return redirect()->to('/admin/affectations?tab=demandes');
+            }
+            if ($data['type'] === 'demande_session') {
+                return redirect()->to('/admin/sessions?tab=demandes');
+            }
+        }
+
+        // Sinon utiliser le lien
+        if ($notification->lien) {
+            return redirect($notification->lien);
+        }
+
+        return redirect()->route('admin.dashboard');
+    }
+
+    public function markAsRead(int $id)
+    {
+        Notification::findOrFail($id)->update(['lu' => true]);
+        return response()->json(['success' => true]);
+    }
+
+    public function markAllAsRead()
+    {
+        Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->where('lu', false)
+            ->update(['lu' => true]);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function destroy(int $id)
+    {
+        Notification::findOrFail($id)->delete();
+        return response()->json(['success' => true]);
+    }
+
+    public function destroyAll()
+    {
+        Notification::where(function ($q) {
+                $q->whereNull('user_id')
+                  ->orWhere('user_id', Auth::guard('admin')->id());
+            })
+            ->where('lu', true)
+            ->delete();
+
+        return response()->json(['success' => true]);
+    }
+}
+PHP;
+    }
+
+    // ============================================================
+    // 3. VUE AFFECTATIONS (avec onglets + auto-ouverture)
+    // ============================================================
+    protected function getAffectationsView(): string
+    {
+        return <<<'BLADE'
+@extends('layouts.admin')
+@section('title', 'Affectations')
+
+@section('content')
+
+<style>
+    .tab-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 20px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+        background: transparent;
+    }
+    .tab-btn-active {
+        background: #059669 !important;
+        color: #ffffff !important;
+    }
+    .tab-btn-active .material-symbols-rounded,
+    .tab-btn-active span {
+        color: #ffffff !important;
+    }
+    .tab-btn-inactive {
+        color: #64748b;
+    }
+    .tab-btn-inactive:hover {
+        background: #f1f5f9;
+    }
+</style>
+
+{{-- Header --}}
+<div class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div>
+        <h1 class="font-display text-2xl font-bold text-slate-900">Affectations</h1>
+        <p class="text-sm text-slate-500 mt-1">Gérez les affectations et les demandes</p>
+    </div>
+    <div class="flex items-center gap-2">
+        <a href="{{ route('admin.pdf.affectations') }}" target="_blank"
+           class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl
+                  bg-slate-100 text-slate-700 text-sm font-semibold hover:bg-slate-200 transition">
+            <span class="material-symbols-rounded text-[18px]">picture_as_pdf</span>
+            PDF
+        </a>
+        <button type="button" onclick="openAffectationModal()"
+                style="background-color: #059669 !important; color: #ffffff !important;"
+                class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                       text-sm font-semibold shadow-md hover:shadow-lg transition">
+            <span class="material-symbols-rounded text-[18px]" style="color: #ffffff !important;">add</span>
+            <span style="color: #ffffff !important;">Nouvelle affectation</span>
+        </button>
+    </div>
+</div>
+
+@if(session('success'))
+    <div class="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+        <span class="material-symbols-rounded">check_circle</span>
+        <div>{{ session('success') }}</div>
+    </div>
+@endif
+
+{{-- ONGLETS --}}
+<div class="mb-6 flex items-center gap-2 p-1.5 bg-white rounded-xl border border-slate-200 w-fit">
+    <button type="button" id="tab-affectations" onclick="switchTab('affectations')"
+            class="tab-btn tab-btn-active">
+        <span class="material-symbols-rounded text-[20px]"
+              style="font-variation-settings: 'FILL' 1;">assignment_ind</span>
+        Affectations
+        <span class="ml-1 px-2 py-0.5 rounded-full text-[11px] bg-white/20 font-bold"
+              id="count-affectations">0</span>
+    </button>
+    <button type="button" id="tab-demandes" onclick="switchTab('demandes')"
+            class="tab-btn tab-btn-inactive">
+        <span class="material-symbols-rounded text-[20px]"
+              style="font-variation-settings: 'FILL' 1;">pending_actions</span>
+        Demandes
+        <span class="ml-1 px-2 py-0.5 rounded-full text-[11px] bg-amber-100 text-amber-700 font-bold"
+              id="count-demandes">0</span>
+    </button>
+</div>
+
+{{-- ONGLET 1 : AFFECTATIONS --}}
+<div id="content-affectations">
+    <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+        <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div class="md:col-span-2">
+                <input type="text" name="search" value="{{ request('search') }}"
+                       placeholder="Rechercher un formateur..."
+                       class="w-full px-4 py-2.5 text-sm border-2 border-slate-200 rounded-lg
+                              focus:outline-none focus:border-emerald-500">
+            </div>
+            <select name="etablissement_id" class="px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg">
+                <option value="">Tous les établissements</option>
+                @foreach($etablissements ?? [] as $e)
+                    <option value="{{ $e->id }}" @selected(request('etablissement_id') == $e->id)>{{ $e->nom }}</option>
+                @endforeach
+            </select>
+            <select name="filiere_id" class="px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg">
+                <option value="">Toutes les filières</option>
+                @foreach($filieres ?? [] as $f)
+                    <option value="{{ $f->id }}" @selected(request('filiere_id') == $f->id)>{{ $f->libelle }}</option>
+                @endforeach
+            </select>
+            <select name="statut" class="px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg">
+                <option value="">Tous les statuts</option>
+                <option value="actif" @selected(request('statut') === 'actif')>Actif</option>
+                <option value="termine" @selected(request('statut') === 'termine')>Terminé</option>
+                <option value="suspendu" @selected(request('statut') === 'suspendu')>Suspendu</option>
+            </select>
+            <div class="md:col-span-5 flex items-center gap-2">
+                <button type="submit" class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold">Filtrer</button>
+                <a href="{{ route('admin.affectations.index') }}" class="px-4 py-2.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-semibold">Reset</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Formateur</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Filière</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Établissement</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Période</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Statut</th>
+                    <th class="text-right px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($affectations ?? [] as $a)
+                    <tr class="border-b border-slate-100 hover:bg-slate-50">
+                        <td class="px-5 py-4">
+                            <div class="flex items-center gap-2">
+                                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-700
+                                            flex items-center justify-center text-white font-bold text-[10px]">
+                                    {{ strtoupper(substr($a->formateur->prenom ?? 'U', 0, 1) . substr($a->formateur->nom ?? 'N', 0, 1)) }}
+                                </div>
+                                <div>
+                                    <div class="font-semibold text-slate-900 text-[13px]">
+                                        {{ $a->formateur->nom ?? '-' }} {{ $a->formateur->prenom ?? '' }}
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 font-mono">{{ $a->formateur->matricule ?? '' }}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-5 py-4 text-slate-700">{{ $a->filiere->libelle ?? '-' }}</td>
+                        <td class="px-5 py-4 text-slate-700">{{ $a->etablissement->nom ?? '-' }}</td>
+                        <td class="px-5 py-4 text-xs text-slate-600">
+                            {{ $a->date_debut?->format('d/m/Y') }} -> {{ $a->date_fin?->format('d/m/Y') ?? 'En cours' }}
+                        </td>
+                        <td class="px-5 py-4">
+                            @if($a->statut === 'actif')
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700">Actif</span>
+                            @elseif($a->statut === 'termine')
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">Terminé</span>
+                            @else
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700">Suspendu</span>
+                            @endif
+                        </td>
+                        <td class="px-5 py-4 text-right">
+                            <form action="{{ route('admin.affectations.destroy', $a->id) }}" method="POST"
+                                  class="inline" onsubmit="return confirm('Supprimer ?')">
+                                @csrf @method('DELETE')
+                                <button class="w-8 h-8 rounded-lg flex items-center justify-center
+                                               text-slate-500 hover:bg-red-50 hover:text-red-600">
+                                    <span class="material-symbols-rounded text-[18px]">delete</span>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="text-center py-16 text-slate-400">Aucune affectation</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+        @if(isset($affectations) && $affectations->hasPages())
+            <div class="px-5 py-3 border-t">{{ $affectations->links() }}</div>
+        @endif
+    </div>
+</div>
+
+{{-- ONGLET 2 : DEMANDES --}}
+<div id="content-demandes" style="display: none;">
+    <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs font-bold text-slate-500 uppercase">Total</div>
+            <div class="text-2xl font-bold text-slate-900 mt-1">{{ $statsDemandes['total'] ?? 0 }}</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-amber-500">
+            <div class="text-xs font-bold text-slate-500 uppercase">En attente</div>
+            <div class="text-2xl font-bold text-amber-600 mt-1">{{ $statsDemandes['en_attente'] ?? 0 }}</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-emerald-500">
+            <div class="text-xs font-bold text-slate-500 uppercase">Approuvées</div>
+            <div class="text-2xl font-bold text-emerald-600 mt-1">{{ $statsDemandes['approuvees'] ?? 0 }}</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-red-500">
+            <div class="text-xs font-bold text-slate-500 uppercase">Refusées</div>
+            <div class="text-2xl font-bold text-red-600 mt-1">{{ $statsDemandes['refusees'] ?? 0 }}</div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Formateur</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Filière</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Motif</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Date</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Statut</th>
+                    <th class="text-right px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($demandes ?? [] as $demande)
+                    <tr class="border-b border-slate-100 hover:bg-slate-50">
+                        <td class="px-5 py-4">
+                            <div class="font-semibold text-slate-900 text-[13px]">
+                                {{ $demande->formateur->prenom ?? '' }} {{ $demande->formateur->nom ?? '' }}
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-mono">{{ $demande->formateur->matricule ?? '' }}</div>
+                        </td>
+                        <td class="px-5 py-4 text-slate-700">{{ $demande->filiere->libelle ?? '-' }}</td>
+                        <td class="px-5 py-4 text-xs text-slate-600 max-w-xs" title="{{ $demande->motif }}">
+                            {{ Str::limit($demande->motif, 50) }}
+                        </td>
+                        <td class="px-5 py-4 text-xs text-slate-500">
+                            {{ $demande->created_at?->format('d/m/Y H:i') }}
+                        </td>
+                        <td class="px-5 py-4">
+                            @if($demande->statut === 'en_attente')
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-amber-50 text-amber-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>En attente
+                                </span>
+                            @elseif($demande->statut === 'approuvee')
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Approuvée
+                                </span>
+                            @else
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-red-50 text-red-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Refusée
+                                </span>
+                            @endif
+                        </td>
+                        <td class="px-5 py-4 text-right">
+                            @if($demande->statut === 'en_attente')
+                                <button type="button"
+                                        onclick="openApprovalModal(
+                                            {{ $demande->id }},
+                                            '{{ addslashes($demande->formateur->prenom ?? '') }} {{ addslashes($demande->formateur->nom ?? '') }}',
+                                            '{{ addslashes($demande->formateur->matricule ?? '') }}'
+                                        )"
+                                        style="background-color: #059669 !important; color: #ffffff !important;"
+                                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl
+                                               text-[12px] font-bold shadow-sm hover:shadow-md transition">
+                                    <span class="material-symbols-rounded text-[16px]" style="color: #ffffff !important;">task_alt</span>
+                                    <span style="color: #ffffff !important;">Traiter</span>
+                                </button>
+                            @else
+                                <span class="text-xs text-slate-400">
+                                    Traitée le {{ $demande->traitee_le?->format('d/m/Y') }}
+                                </span>
+                            @endif
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="text-center py-16 text-slate-400">Aucune demande</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+        @if(isset($demandes) && $demandes->hasPages())
+            <div class="px-5 py-3 border-t">{{ $demandes->links() }}</div>
+        @endif
+    </div>
+</div>
+
+{{-- MODAL APPROBATION --}}
+<div id="approvalModal" class="fixed inset-0 z-[9999] items-center justify-center p-4" style="display:none;"
+     onclick="if(event.target === this) closeApprovalModal()">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden" style="max-height: 90vh;">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background-color: #059669;">
+                    <span class="material-symbols-rounded text-white text-xl"
+                          style="color: #ffffff !important; font-variation-settings: 'FILL' 1;">task_alt</span>
+                </div>
+                <div>
+                    <h2 class="font-display text-lg font-bold text-slate-900">Traiter la demande</h2>
+                    <p class="text-xs text-slate-500">Demande d'affectation</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeApprovalModal()"
+                    class="w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100">
+                <span class="material-symbols-rounded text-[20px]">close</span>
+            </button>
+        </div>
+
+        <form id="approvalForm" method="POST"
+              data-base-url="{{ url('/admin/demandes-affectations') }}"
+              class="flex flex-col flex-1 min-h-0">
+            @csrf
+            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                <div class="bg-slate-50 rounded-xl p-4">
+                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Formateur</div>
+                    <div class="font-semibold text-slate-900" id="modalFormateur">-</div>
+                    <div class="text-xs text-slate-500 font-mono mt-0.5" id="modalMatricule">-</div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-3">Votre décision <span class="text-red-500">*</span></label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="decision" value="approuver" class="peer sr-only" checked>
+                            <div class="flex flex-col items-center gap-2 px-4 py-5 border-2 border-slate-200 rounded-xl
+                                        transition-all hover:border-emerald-300 hover:bg-emerald-50/30
+                                        peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:shadow-md">
+                                <span class="material-symbols-rounded text-emerald-600 text-3xl"
+                                      style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                                <span class="text-sm font-bold text-slate-900">Accepter</span>
+                                <span class="text-[11px] text-slate-500">Approuver</span>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="decision" value="refuser" class="peer sr-only">
+                            <div class="flex flex-col items-center gap-2 px-4 py-5 border-2 border-slate-200 rounded-xl
+                                        transition-all hover:border-red-300 hover:bg-red-50/30
+                                        peer-checked:border-red-500 peer-checked:bg-red-50 peer-checked:shadow-md">
+                                <span class="material-symbols-rounded text-red-600 text-3xl"
+                                      style="font-variation-settings: 'FILL' 1;">cancel</span>
+                                <span class="text-sm font-bold text-slate-900">Refuser</span>
+                                <span class="text-[11px] text-slate-500">Rejeter</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        Message au formateur <span class="text-slate-400 font-normal">(optionnel)</span>
+                    </label>
+                    <textarea name="reponse_admin" id="reponse_admin" rows="4"
+                              placeholder="Expliquez votre décision..."
+                              class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-xl
+                                     focus:outline-none focus:border-emerald-500 resize-none"></textarea>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2 bg-slate-50 rounded-b-2xl shrink-0">
+                <button type="button" onclick="closeApprovalModal()"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                               bg-slate-100 text-slate-700 text-sm font-semibold hover:bg-slate-200">
+                    Annuler
+                </button>
+                <button type="submit"
+                        style="background-color: #059669 !important; color: #ffffff !important;"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold shadow-md">
+                    <span class="material-symbols-rounded text-[18px]" style="color: #ffffff !important;">send</span>
+                    <span style="color: #ffffff !important;">Valider la décision</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // ============================================
+    // SWITCH TAB + DÉTECTION ?tab=demandes
+    // ============================================
+    function switchTab(tab) {
+        ['affectations', 'demandes'].forEach(t => {
+            document.getElementById('content-' + t).style.display = (t === tab) ? 'block' : 'none';
+            const btn = document.getElementById('tab-' + t);
+            if (t === tab) {
+                btn.classList.add('tab-btn-active');
+                btn.classList.remove('tab-btn-inactive');
+            } else {
+                btn.classList.remove('tab-btn-active');
+                btn.classList.add('tab-btn-inactive');
+            }
+        });
+        localStorage.setItem('affectationsTab', tab);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // [AJAX] Détecter ?tab=demandes dans l'URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabFromUrl = urlParams.get('tab');
+
+        // Priorité : URL > localStorage > défaut
+        const savedTab = tabFromUrl || localStorage.getItem('affectationsTab') || 'affectations';
+        switchTab(savedTab);
+
+        // Nettoyer l'URL (retirer ?tab=)
+        if (tabFromUrl) {
+            window.history.replaceState({}, '', window.location.pathname);
+        }
+
+        document.getElementById('count-affectations').textContent = {{ $affectations->total() ?? 0 }};
+        document.getElementById('count-demandes').textContent = {{ $statsDemandes['en_attente'] ?? 0 }};
+    });
+
+    // Modal approbation
+    let currentDemandeId = null;
+
+    function openApprovalModal(id, formateur, matricule) {
+        currentDemandeId = id;
+        document.getElementById('modalFormateur').textContent = formateur;
+        document.getElementById('modalMatricule').textContent = matricule;
+        document.querySelector('#approvalForm input[value="approuver"]').checked = true;
+        document.getElementById('reponse_admin').value = '';
+        document.getElementById('approvalModal').style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeApprovalModal() {
+        document.getElementById('approvalModal').style.display = 'none';
+        document.body.style.overflow = '';
+        currentDemandeId = null;
+    }
+
+    document.getElementById('approvalForm')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        if (!currentDemandeId) return;
+        const decision = this.querySelector('input[name="decision"]:checked').value;
+        const baseUrl = this.getAttribute('data-base-url');
+        this.action = baseUrl + '/' + currentDemandeId + '/' + decision;
+        this.submit();
+    });
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeApprovalModal();
+    });
+</script>
+
+@endsection
+BLADE;
+    }
+
+    // ============================================================
+    // 4. VUE SESSIONS (avec onglets + auto-ouverture)
+    // ============================================================
+    protected function getSessionsView(): string
+    {
+        return <<<'BLADE'
+@extends('layouts.admin')
+@section('title', 'Sessions')
+
+@section('content')
+
+<style>
+    .tab-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 20px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+        background: transparent;
+    }
+    .tab-btn-active {
+        background: #059669 !important;
+        color: #ffffff !important;
+    }
+    .tab-btn-active .material-symbols-rounded,
+    .tab-btn-active span {
+        color: #ffffff !important;
+    }
+    .tab-btn-inactive {
+        color: #64748b;
+    }
+    .tab-btn-inactive:hover {
+        background: #f1f5f9;
+    }
+</style>
+
+<div class="mb-6">
+    <h1 class="font-display text-2xl font-bold text-slate-900">Sessions</h1>
+    <p class="text-sm text-slate-500 mt-1">Gérez les sessions et les demandes</p>
+</div>
+
+@if(session('success'))
+    <div class="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+        <span class="material-symbols-rounded">check_circle</span>
+        <div>{{ session('success') }}</div>
+    </div>
+@endif
+
+<div class="mb-6 flex items-center gap-2 p-1.5 bg-white rounded-xl border border-slate-200 w-fit">
+    <button type="button" id="tab-sessions" onclick="switchTab('sessions')" class="tab-btn tab-btn-active">
+        <span class="material-symbols-rounded text-[20px]" style="font-variation-settings: 'FILL' 1;">event</span>
+        Sessions
+        <span class="ml-1 px-2 py-0.5 rounded-full text-[11px] bg-white/20 font-bold" id="count-sessions">0</span>
+    </button>
+    <button type="button" id="tab-demandes" onclick="switchTab('demandes')" class="tab-btn tab-btn-inactive">
+        <span class="material-symbols-rounded text-[20px]" style="font-variation-settings: 'FILL' 1;">event_available</span>
+        Demandes
+        <span class="ml-1 px-2 py-0.5 rounded-full text-[11px] bg-amber-100 text-amber-700 font-bold" id="count-demandes">0</span>
+    </button>
+</div>
+
+{{-- ONGLET 1 : SESSIONS --}}
+<div id="content-sessions">
+    <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4">
+        <form method="GET" class="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div class="md:col-span-2">
+                <input type="text" name="search" value="{{ request('search') }}"
+                       placeholder="Rechercher..."
+                       class="w-full px-4 py-2.5 text-sm border-2 border-slate-200 rounded-lg
+                              focus:outline-none focus:border-emerald-500">
+            </div>
+            <select name="statut" class="px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg">
+                <option value="">Tous les statuts</option>
+                <option value="actif" @selected(request('statut') === 'actif')>Actif</option>
+                <option value="inactif" @selected(request('statut') === 'inactif')>Terminée</option>
+                <option value="suspendu" @selected(request('statut') === 'suspendu')>Suspendue</option>
+            </select>
+            <select name="etablissement_id" class="px-3 py-2.5 text-sm border-2 border-slate-200 rounded-lg">
+                <option value="">Tous les établissements</option>
+                @foreach($etablissements ?? [] as $e)
+                    <option value="{{ $e->id }}" @selected(request('etablissement_id') == $e->id)>{{ $e->nom }}</option>
+                @endforeach
+            </select>
+            <div class="flex items-center gap-2">
+                <button type="submit" class="px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold">Filtrer</button>
+                <a href="{{ route('admin.sessions.index') }}" class="px-4 py-2.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-semibold">Reset</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Formateur</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Établissement</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Filière</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Période</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Statut</th>
+                    <th class="text-right px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($sessions ?? [] as $s)
+                    <tr class="border-b border-slate-100 hover:bg-slate-50">
+                        <td class="px-5 py-4">
+                            <div class="flex items-center gap-2">
+                                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-700
+                                            flex items-center justify-center text-white font-bold text-[10px]">
+                                    {{ strtoupper(substr($s->formateur->prenom ?? 'U', 0, 1) . substr($s->formateur->nom ?? 'N', 0, 1)) }}
+                                </div>
+                                <div>
+                                    <div class="font-semibold text-slate-900 text-[13px]">
+                                        {{ $s->formateur->nom ?? '-' }} {{ $s->formateur->prenom ?? '' }}
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 font-mono">{{ $s->formateur->matricule ?? '' }}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-5 py-4 text-slate-700">{{ $s->etablissement->nom ?? '-' }}</td>
+                        <td class="px-5 py-4 text-slate-700">{{ $s->filiere->libelle ?? '-' }}</td>
+                        <td class="px-5 py-4 text-xs text-slate-600">
+                            {{ $s->date_debut?->format('d/m/Y') }} -> {{ $s->date_fin?->format('d/m/Y') }}
+                        </td>
+                        <td class="px-5 py-4">
+                            @if($s->statut === 'actif')
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700">Active</span>
+                            @elseif($s->statut === 'inactif')
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">Terminée</span>
+                            @else
+                                <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700">Suspendue</span>
+                            @endif
+                        </td>
+                        <td class="px-5 py-4 text-right">
+                            <a href="{{ route('admin.sessions.show', $s->id) }}"
+                               class="w-8 h-8 rounded-lg inline-flex items-center justify-center
+                                      text-slate-500 hover:bg-emerald-50 hover:text-emerald-700">
+                                <span class="material-symbols-rounded text-[18px]">visibility</span>
+                            </a>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="text-center py-16 text-slate-400">Aucune session</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+        @if(isset($sessions) && $sessions->hasPages())
+            <div class="px-5 py-3 border-t">{{ $sessions->links() }}</div>
+        @endif
+    </div>
+</div>
+
+{{-- ONGLET 2 : DEMANDES --}}
+<div id="content-demandes" style="display: none;">
+    <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-xs font-bold text-slate-500 uppercase">Total</div>
+            <div class="text-2xl font-bold text-slate-900 mt-1">{{ $statsDemandes['total'] ?? 0 }}</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-amber-500">
+            <div class="text-xs font-bold text-slate-500 uppercase">En attente</div>
+            <div class="text-2xl font-bold text-amber-600 mt-1">{{ $statsDemandes['en_attente'] ?? 0 }}</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-emerald-500">
+            <div class="text-xs font-bold text-slate-500 uppercase">Approuvées</div>
+            <div class="text-2xl font-bold text-emerald-600 mt-1">{{ $statsDemandes['approuvees'] ?? 0 }}</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 border-l-4 border-red-500">
+            <div class="text-xs font-bold text-slate-500 uppercase">Refusées</div>
+            <div class="text-2xl font-bold text-red-600 mt-1">{{ $statsDemandes['refusees'] ?? 0 }}</div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+                <tr>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Formateur</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Titre</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Période</th>
+                    <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Statut</th>
+                    <th class="text-right px-5 py-3 text-[11px] font-bold text-slate-500 uppercase">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($demandes ?? [] as $demande)
+                    <tr class="border-b border-slate-100 hover:bg-slate-50">
+                        <td class="px-5 py-4">
+                            <div class="font-semibold text-slate-900 text-[13px]">
+                                {{ $demande->formateur->prenom ?? '' }} {{ $demande->formateur->nom ?? '' }}
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-mono">{{ $demande->formateur->matricule ?? '' }}</div>
+                        </td>
+                        <td class="px-5 py-4 text-slate-700">{{ $demande->titre }}</td>
+                        <td class="px-5 py-4 text-xs text-slate-600">
+                            {{ $demande->date_debut_souhaitee?->format('d/m/Y') ?? '-' }}
+                            -> {{ $demande->date_fin_souhaitee?->format('d/m/Y') ?? '-' }}
+                        </td>
+                        <td class="px-5 py-4">
+                            @if($demande->statut === 'en_attente')
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-amber-50 text-amber-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>En attente
+                                </span>
+                            @elseif($demande->statut === 'approuvee')
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Approuvée
+                                </span>
+                            @else
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                             text-[10px] font-bold bg-red-50 text-red-700">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Refusée
+                                </span>
+                            @endif
+                        </td>
+                        <td class="px-5 py-4 text-right">
+                            @if($demande->statut === 'en_attente')
+                                <button type="button"
+                                        onclick="openApprovalModalSession(
+                                            {{ $demande->id }},
+                                            '{{ addslashes($demande->formateur->prenom ?? '') }} {{ addslashes($demande->formateur->nom ?? '') }}',
+                                            '{{ addslashes($demande->formateur->matricule ?? '') }}'
+                                        )"
+                                        style="background-color: #059669 !important; color: #ffffff !important;"
+                                        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl
+                                               text-[12px] font-bold shadow-sm hover:shadow-md transition">
+                                    <span class="material-symbols-rounded text-[16px]" style="color: #ffffff !important;">task_alt</span>
+                                    <span style="color: #ffffff !important;">Traiter</span>
+                                </button>
+                            @else
+                                <span class="text-xs text-slate-400">
+                                    Traitée le {{ $demande->traitee_le?->format('d/m/Y') }}
+                                </span>
+                            @endif
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="5" class="text-center py-16 text-slate-400">Aucune demande</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+        @if(isset($demandes) && $demandes->hasPages())
+            <div class="px-5 py-3 border-t">{{ $demandes->links() }}</div>
+        @endif
+    </div>
+</div>
+
+{{-- MODAL APPROBATION --}}
+<div id="approvalModalSession" class="fixed inset-0 z-[9999] items-center justify-center p-4" style="display:none;"
+     onclick="if(event.target === this) closeApprovalModalSession()">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden" style="max-height: 90vh;">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background-color: #059669;">
+                    <span class="material-symbols-rounded text-white text-xl"
+                          style="color: #ffffff !important; font-variation-settings: 'FILL' 1;">task_alt</span>
+                </div>
+                <div>
+                    <h2 class="font-display text-lg font-bold text-slate-900">Traiter la demande</h2>
+                    <p class="text-xs text-slate-500">Demande de session</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeApprovalModalSession()"
+                    class="w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100">
+                <span class="material-symbols-rounded text-[20px]">close</span>
+            </button>
+        </div>
+
+        <form id="approvalFormSession" method="POST"
+              data-base-url="{{ url('/admin/demandes-sessions') }}"
+              class="flex flex-col flex-1 min-h-0">
+            @csrf
+            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                <div class="bg-slate-50 rounded-xl p-4">
+                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Formateur</div>
+                    <div class="font-semibold text-slate-900" id="modalFormateurSession">-</div>
+                    <div class="text-xs text-slate-500 font-mono mt-0.5" id="modalMatriculeSession">-</div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-3">Votre décision <span class="text-red-500">*</span></label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="decision" value="approuver" class="peer sr-only" checked>
+                            <div class="flex flex-col items-center gap-2 px-4 py-5 border-2 border-slate-200 rounded-xl
+                                        transition-all hover:border-emerald-300 hover:bg-emerald-50/30
+                                        peer-checked:border-emerald-500 peer-checked:bg-emerald-50 peer-checked:shadow-md">
+                                <span class="material-symbols-rounded text-emerald-600 text-3xl"
+                                      style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                                <span class="text-sm font-bold text-slate-900">Accepter</span>
+                                <span class="text-[11px] text-slate-500">Approuver</span>
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="decision" value="refuser" class="peer sr-only">
+                            <div class="flex flex-col items-center gap-2 px-4 py-5 border-2 border-slate-200 rounded-xl
+                                        transition-all hover:border-red-300 hover:bg-red-50/30
+                                        peer-checked:border-red-500 peer-checked:bg-red-50 peer-checked:shadow-md">
+                                <span class="material-symbols-rounded text-red-600 text-3xl"
+                                      style="font-variation-settings: 'FILL' 1;">cancel</span>
+                                <span class="text-sm font-bold text-slate-900">Refuser</span>
+                                <span class="text-[11px] text-slate-500">Rejeter</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        Message au formateur <span class="text-slate-400 font-normal">(optionnel)</span>
+                    </label>
+                    <textarea name="reponse_admin" id="reponse_admin_session" rows="4"
+                              placeholder="Expliquez votre décision..."
+                              class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-xl
+                                     focus:outline-none focus:border-emerald-500 resize-none"></textarea>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2 bg-slate-50 rounded-b-2xl shrink-0">
+                <button type="button" onclick="closeApprovalModalSession()"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl
+                               bg-slate-100 text-slate-700 text-sm font-semibold hover:bg-slate-200">
+                    Annuler
+                </button>
+                <button type="submit"
+                        style="background-color: #059669 !important; color: #ffffff !important;"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold shadow-md">
+                    <span class="material-symbols-rounded text-[18px]" style="color: #ffffff !important;">send</span>
+                    <span style="color: #ffffff !important;">Valider la décision</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function switchTab(tab) {
+        ['sessions', 'demandes'].forEach(t => {
+            document.getElementById('content-' + t).style.display = (t === tab) ? 'block' : 'none';
+            const btn = document.getElementById('tab-' + t);
+            if (t === tab) {
+                btn.classList.add('tab-btn-active');
+                btn.classList.remove('tab-btn-inactive');
+            } else {
+                btn.classList.remove('tab-btn-active');
+                btn.classList.add('tab-btn-inactive');
+            }
+        });
+        localStorage.setItem('sessionsTab', tab);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // [AJAX] Détecter ?tab=demandes dans l'URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabFromUrl = urlParams.get('tab');
+        const savedTab = tabFromUrl || localStorage.getItem('sessionsTab') || 'sessions';
+        switchTab(savedTab);
+
+        // Nettoyer l'URL
+        if (tabFromUrl) {
+            window.history.replaceState({}, '', window.location.pathname);
+        }
+
+        document.getElementById('count-sessions').textContent = {{ $sessions->total() ?? 0 }};
+        document.getElementById('count-demandes').textContent = {{ $statsDemandes['en_attente'] ?? 0 }};
+    });
+
+    let currentDemandeSessionId = null;
+
+    function openApprovalModalSession(id, formateur, matricule) {
+        currentDemandeSessionId = id;
+        document.getElementById('modalFormateurSession').textContent = formateur;
+        document.getElementById('modalMatriculeSession').textContent = matricule;
+        document.querySelector('#approvalFormSession input[value="approuver"]').checked = true;
+        document.getElementById('reponse_admin_session').value = '';
+        document.getElementById('approvalModalSession').style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeApprovalModalSession() {
+        document.getElementById('approvalModalSession').style.display = 'none';
+        document.body.style.overflow = '';
+        currentDemandeSessionId = null;
+    }
+
+    document.getElementById('approvalFormSession')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        if (!currentDemandeSessionId) return;
+        const decision = this.querySelector('input[name="decision"]:checked').value;
+        const baseUrl = this.getAttribute('data-base-url');
+        this.action = baseUrl + '/' + currentDemandeSessionId + '/' + decision;
+        this.submit();
+    });
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeApprovalModalSession();
+    });
+</script>
+
+@endsection
+BLADE;
+    }
+
+    // ============================================================
+    // 5. CONTRÔLEUR AFFECTATION
+    // ============================================================
+    protected function getAffectationController(): string
+    {
+        return <<<'PHP'
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use Application\Notifications\Services\NotificationService;
+use Illuminate\Http\Request;
+use Infrastructure\Persistence\Eloquent\Models\AffectationModel;
+use Infrastructure\Persistence\Eloquent\Models\DemandeAffectationModel;
+use Infrastructure\Persistence\Eloquent\Models\EtablissementModel;
+use Infrastructure\Persistence\Eloquent\Models\FiliereModel;
+use Infrastructure\Persistence\Eloquent\Models\FormateurModel;
+use Infrastructure\Persistence\Eloquent\Models\SessionModel;
+
+class AffectationController extends Controller
+{
+    public function index()
+    {
+        // Affectations
+        $affectations = AffectationModel::with(['formateur', 'filiere', 'etablissement'])
+            ->when(request('search'), function ($q, $s) {
+                $q->whereHas('formateur', function ($qq) use ($s) {
+                    $qq->where('nom', 'like', "%{$s}%")
+                       ->orWhere('prenom', 'like', "%{$s}%")
+                       ->orWhere('matricule', 'like', "%{$s}%");
+                });
+            })
+            ->when(request('statut'), fn($q, $s) => $q->where('statut', $s))
+            ->when(request('etablissement_id'), fn($q, $id) => $q->where('etablissement_id', $id))
+            ->when(request('filiere_id'), fn($q, $id) => $q->where('filiere_id', $id))
+            ->latest('date_debut')
+            ->paginate(20)
+            ->withQueryString();
+
+        // Demandes
+        $demandes = DemandeAffectationModel::with(['formateur', 'filiere', 'etablissement'])
+            ->latest()
+            ->paginate(20, ['*'], 'demandes_page');
+
+        $statsDemandes = [
+            'total'      => DemandeAffectationModel::count(),
+            'en_attente' => DemandeAffectationModel::where('statut', 'en_attente')->count(),
+            'approuvees' => DemandeAffectationModel::where('statut', 'approuvee')->count(),
+            'refusees'   => DemandeAffectationModel::where('statut', 'refusee')->count(),
+        ];
+
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+        $filieres = FiliereModel::orderBy('libelle')->get();
+
+        return view('admin.affectations.index', compact(
+            'affectations', 'demandes', 'statsDemandes',
+            'etablissements', 'filieres'
+        ));
+    }
+
+    public function create()
+    {
+        $formateurs = FormateurModel::orderBy('nom')->get();
+        $filieres = FiliereModel::orderBy('libelle')->get();
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+
+        if (request()->ajax()) {
+            return response()->json([
+                'html' => view('admin.affectations.partials.form', compact(
+                    'formateurs', 'filieres', 'etablissements'
+                ))->render(),
+            ]);
+        }
+
+        return view('admin.affectations.create', compact('formateurs', 'filieres', 'etablissements'));
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'formateur_id'     => 'required|exists:formateurs,id',
+            'filiere_id'       => 'required|exists:filieres,id',
+            'etablissement_id' => 'required|exists:etablissements,id',
+            'date_debut'       => 'required|date',
+            'date_fin'         => 'nullable|date|after_or_equal:date_debut',
+            'statut'           => 'required|in:actif,termine,suspendu',
+        ]);
+
+        $affectation = AffectationModel::create($validated);
+
+        $formateur = FormateurModel::find($validated['formateur_id']);
+        $filiere = FiliereModel::find($validated['filiere_id']);
+
+        if ($formateur && $filiere) {
+            $code = SessionModel::generateNextCode();
+            SessionModel::create([
+                'code'             => $code,
+                'titre'            => 'Session ' . $filiere->libelle,
+                'filiere_id'       => $validated['filiere_id'],
+                'formateur_id'     => $validated['formateur_id'],
+                'etablissement_id' => $validated['etablissement_id'],
+                'date_debut'       => $validated['date_debut'],
+                'date_fin'         => $validated['date_fin'] ?? now()->addMonths(6)->toDateString(),
+                'nb_places'        => 0,
+                'statut'           => 'actif',
+            ]);
+
+            NotificationService::sessionCreee($code, $formateur->prenom . ' ' . $formateur->nom);
+            NotificationService::affectationCreee($formateur->prenom . ' ' . $formateur->nom, $filiere->libelle);
+        }
+
+        if ($request->ajax()) {
+            return response()->json([
+                'success'  => true,
+                'redirect' => route('admin.affectations.index'),
+            ]);
+        }
+
+        return redirect()->route('admin.affectations.index')->with('success', 'Affectation créée.');
+    }
+
+    public function show(int $id)
+    {
+        $affectation = AffectationModel::with(['formateur', 'filiere', 'etablissement'])->findOrFail($id);
+
+        if (request()->ajax()) {
+            return response()->json([
+                'html' => view('admin.affectations.partials.show', compact('affectation'))->render(),
+            ]);
+        }
+
+        return view('admin.affectations.show', compact('affectation'));
+    }
+
+    public function edit(int $id)
+    {
+        $affectation = AffectationModel::findOrFail($id);
+        $formateurs = FormateurModel::orderBy('nom')->get();
+        $filieres = FiliereModel::orderBy('libelle')->get();
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+
+        if (request()->ajax()) {
+            return response()->json([
+                'html' => view('admin.affectations.partials.form', compact(
+                    'affectation', 'formateurs', 'filieres', 'etablissements'
+                ))->render(),
+            ]);
+        }
+
+        return view('admin.affectations.edit', compact('affectation', 'formateurs', 'filieres', 'etablissements'));
+    }
+
+    public function update(Request $request, int $id)
+    {
+        $affectation = AffectationModel::findOrFail($id);
+
+        $validated = $request->validate([
+            'formateur_id'     => 'required|exists:formateurs,id',
+            'filiere_id'       => 'required|exists:filieres,id',
+            'etablissement_id' => 'required|exists:etablissements,id',
+            'date_debut'       => 'required|date',
+            'date_fin'         => 'nullable|date|after_or_equal:date_debut',
+            'statut'           => 'required|in:actif,termine,suspendu',
+        ]);
+
+        $affectation->update($validated);
+
+        if ($request->ajax()) {
+            return response()->json([
+                'success'  => true,
+                'redirect' => route('admin.affectations.index'),
+            ]);
+        }
+
+        return redirect()->route('admin.affectations.index')->with('success', 'Affectation mise à jour.');
+    }
+
+    public function destroy(int $id)
+    {
+        AffectationModel::findOrFail($id)->delete();
+        return redirect()->route('admin.affectations.index')->with('success', 'Affectation supprimée.');
+    }
+}
+PHP;
+    }
+
+    // ============================================================
+    // 6. CONTRÔLEUR SESSION
+    // ============================================================
+    protected function getSessionController(): string
+    {
+        return <<<'PHP'
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Infrastructure\Persistence\Eloquent\Models\DemandeSessionModel;
+use Infrastructure\Persistence\Eloquent\Models\EtablissementModel;
+use Infrastructure\Persistence\Eloquent\Models\FormateurModel;
+use Infrastructure\Persistence\Eloquent\Models\SessionModel;
+
+class SessionController extends Controller
+{
+    public function index()
+    {
+        $sessions = SessionModel::with(['formateur', 'filiere', 'etablissement'])
+            ->search(request('search'))
+            ->when(request('statut'), fn($q, $s) => $q->where('statut', $s))
+            ->when(request('etablissement_id'), fn($q, $id) => $q->where('etablissement_id', $id))
+            ->orderBy('date_debut', 'desc')
+            ->paginate(20)
+            ->withQueryString();
+
+        $demandes = DemandeSessionModel::with(['formateur', 'filiere', 'etablissement'])
+            ->latest()
+            ->paginate(20, ['*'], 'demandes_page');
+
+        $statsDemandes = [
+            'total'      => DemandeSessionModel::count(),
+            'en_attente' => DemandeSessionModel::where('statut', 'en_attente')->count(),
+            'approuvees' => DemandeSessionModel::where('statut', 'approuvee')->count(),
+            'refusees'   => DemandeSessionModel::where('statut', 'refusee')->count(),
+        ];
+
+        $etablissements = EtablissementModel::orderBy('nom')->get();
+        $formateurs = FormateurModel::orderBy('nom')->get();
+
+        return view('admin.sessions.index', compact(
+            'sessions', 'demandes', 'statsDemandes',
+            'etablissements', 'formateurs'
+        ));
+    }
+
+    public function show(int $id)
+    {
+        $session = SessionModel::with(['formateur', 'filiere', 'etablissement'])->findOrFail($id);
+        return view('admin.sessions.show', compact('session'));
+    }
+}
+PHP;
+    }
+}

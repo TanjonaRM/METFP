@@ -1,0 +1,281 @@
+@extends('layouts.formateur')
+@section('title', 'Mes demandes d\'affectations')
+
+@section('content')
+
+<div class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div>
+        <h1 class="font-display text-2xl font-bold text-slate-900">Mes demandes d'affectations</h1>
+        <p class="text-sm text-slate-500 mt-1">
+            Soumettez vos demandes à l'administration
+        </p>
+    </div>
+
+    <button type="button" onclick="openDemandeModal()" class="btn-primary">
+        <span class="material-symbols-rounded text-lg">add</span>
+        Nouvelle demande
+    </button>
+</div>
+
+{{-- Messages --}}
+@if(session('success'))
+    <div class="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+        <span class="material-symbols-rounded">check_circle</span>
+        <div>{{ session('success') }}</div>
+    </div>
+@endif
+
+@if($errors->any())
+    <div class="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-red-50 border border-red-200 text-red-800 text-sm">
+        <span class="material-symbols-rounded">error</span>
+        <div>
+            @foreach($errors->all() as $error)
+                <div>{{ $error }}</div>
+            @endforeach
+        </div>
+    </div>
+@endif
+
+{{-- Liste des demandes --}}
+<div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 border-b border-slate-200">
+            <tr>
+                <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filière</th>
+                <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Établissement</th>
+                <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date souhaitée</th>
+                <th class="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
+                <th class="text-right px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($demandes as $demande)
+                <tr class="border-b border-slate-100 hover:bg-emerald-50/40 transition last:border-0">
+                    <td class="px-5 py-4 text-slate-700">
+                        {{ $demande->created_at?->format('d/m/Y') }}
+                    </td>
+                    <td class="px-5 py-4 text-slate-700">
+                        {{ $demande->filiere->libelle ?? '—' }}
+                    </td>
+                    <td class="px-5 py-4 text-slate-700">
+                        {{ $demande->etablissement->nom ?? '—' }}
+                    </td>
+                    <td class="px-5 py-4 text-slate-700">
+                        {{ $demande->date_souhaitee?->format('d/m/Y') ?? '—' }}
+                    </td>
+                    <td class="px-5 py-4">
+                        @if($demande->statut === 'en_attente')
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                         text-[10px] font-bold bg-amber-50 text-amber-700">
+                                En attente
+                            </span>
+                        @elseif($demande->statut === 'approuvee')
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                         text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                                Approuvée
+                            </span>
+                        @else
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                                         text-[10px] font-bold bg-red-50 text-red-700">
+                                Refusée
+                            </span>
+                        @endif
+                    </td>
+                    <td class="px-5 py-4 text-right">
+                        <button type="button"
+                                onclick="openShowModal({{ $demande->id }})"
+                                class="text-emerald-600 hover:text-emerald-700 text-xs font-semibold">
+                            Détails →
+                        </button>
+                    </td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="6" class="text-center py-16">
+                        <span class="material-symbols-rounded text-5xl text-slate-300 block mb-3">
+                            assignment
+                        </span>
+                        <p class="text-slate-500 font-semibold">Aucune demande</p>
+                        <p class="text-sm text-slate-400 mt-1">
+                            Cliquez sur "Nouvelle demande" pour commencer.
+                        </p>
+                    </td>
+                </tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
+
+{{-- ============================================================
+     MODAL : NOUVELLE DEMANDE
+     ============================================================ --}}
+<div id="demandeModal" class="fixed inset-0 z-[9999] items-center justify-center p-4" style="display:none;">
+    <div class="absolute inset-0 bg-black/50" onclick="closeDemandeModal()"></div>
+
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        {{-- Header --}}
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-emerald-600 flex items-center justify-center">
+                    <span class="material-symbols-rounded text-white text-xl"
+                          style="font-variation-settings: 'FILL' 1;">assignment</span>
+                </div>
+                <div>
+                    <h2 class="font-display text-lg font-bold text-slate-900">
+                        Nouvelle demande d'affectation
+                    </h2>
+                    <p class="text-xs text-slate-500">Remplissez le formulaire ci-dessous</p>
+                </div>
+            </div>
+            <button type="button" onclick="closeDemandeModal()"
+                    class="w-9 h-9 rounded-md flex items-center justify-center
+                           text-slate-500 hover:bg-slate-100">
+                <span class="material-symbols-rounded">close</span>
+            </button>
+        </div>
+
+        {{-- Form --}}
+        <form action="{{ route('formateur.demandes.store') }}" method="POST" class="flex flex-col flex-1 min-h-0">
+            @csrf
+
+            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+                {{-- Filière --}}
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        Filière souhaitée
+                    </label>
+                    <select name="filiere_id"
+                            class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-lg
+                                   focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                        <option value="">— Aucune préférence —</option>
+                        @foreach($filieres as $filiere)
+                            <option value="{{ $filiere->id }}" @selected(old('filiere_id') == $filiere->id)>
+                                {{ $filiere->libelle }} ({{ $filiere->code }})
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                {{-- Établissement --}}
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        Établissement souhaité
+                    </label>
+                    <select name="etablissement_id"
+                            class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-lg
+                                   focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                        <option value="">— Aucune préférence —</option>
+                        @foreach($etablissements as $etablissement)
+                            <option value="{{ $etablissement->id }}" @selected(old('etablissement_id') == $etablissement->id)>
+                                {{ $etablissement->nom }} ({{ $etablissement->code }})
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                {{-- Date souhaitée --}}
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        Date souhaitée
+                    </label>
+                    <input type="date" name="date_souhaitee"
+                           value="{{ old('date_souhaitee') }}"
+                           min="{{ date('Y-m-d') }}"
+                           class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-lg
+                                  focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                </div>
+
+                {{-- Motif --}}
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">
+                        Motif <span class="text-red-500">*</span>
+                    </label>
+                    <textarea name="motif" rows="4" required
+                              placeholder="Expliquez brièvement la raison de votre demande (min. 10 caractères)..."
+                              class="w-full px-4 py-3 text-sm border-2 border-slate-200 rounded-lg
+                                     focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100
+                                     resize-none">{{ old('motif') }}</textarea>
+                    <p class="text-xs text-slate-400 mt-1.5">
+                        ⓘ Cette demande sera envoyée à l'administration.
+                    </p>
+                </div>
+            </div>
+
+            {{-- Footer --}}
+            <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-2
+                        bg-slate-50 rounded-b-2xl">
+                <button type="button" onclick="closeDemandeModal()" class="btn-secondary">
+                    Annuler
+                </button>
+                <button type="submit" class="btn-primary">
+                    <span class="material-symbols-rounded text-lg">send</span>
+                    Envoyer la demande
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- ============================================================
+     MODAL : DÉTAIL DEMANDE
+     ============================================================ --}}
+<div id="showModal" class="fixed inset-0 z-[9999] items-center justify-center p-4" style="display:none;">
+    <div class="absolute inset-0 bg-black/50" onclick="closeShowModal()"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+            <h2 class="font-display text-lg font-bold text-slate-900">Détail de la demande</h2>
+            <button type="button" onclick="closeShowModal()"
+                    class="w-9 h-9 rounded-md flex items-center justify-center text-slate-500 hover:bg-slate-100">
+                <span class="material-symbols-rounded">close</span>
+            </button>
+        </div>
+        <div id="showContent" class="px-6 py-5 overflow-y-auto">
+            <div class="text-center py-8 text-slate-400">Chargement...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function openDemandeModal() {
+        document.getElementById('demandeModal').style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+    function closeDemandeModal() {
+        document.getElementById('demandeModal').style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
+    function openShowModal(id) {
+        document.getElementById('showModal').style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+
+        fetch(`/formateur/demandes/${id}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('showContent').innerHTML = data.html;
+        })
+        .catch(err => {
+            document.getElementById('showContent').innerHTML =
+                '<div class="text-center py-8 text-red-500">Erreur</div>';
+        });
+    }
+    function closeShowModal() {
+        document.getElementById('showModal').style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            closeDemandeModal();
+            closeShowModal();
+        }
+    });
+</script>
+
+@endsection

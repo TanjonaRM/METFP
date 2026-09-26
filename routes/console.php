@@ -1,0 +1,9 @@
+<?php
+
+use Illuminate\Support\Facades\Schedule;
+
+// Expiration auto des sessions - tous les jours à minuit
+Schedule::command('sessions:expire')->daily();
+
+// Ou toutes les heures pour plus de précision
+// Schedule::command('sessions:expire')->hourly();

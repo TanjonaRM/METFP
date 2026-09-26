@@ -1,0 +1,172 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Route;
+
+class DiagnoseFormateurModal extends Command
+{
+    protected $signature = 'diagnose:formateur-modal';
+    protected $description = 'Diagnostic complet du modal Formateur';
+
+    public function handle(): int
+    {
+        $this->line('');
+        $this->line('+====================================================+');
+        $this->line('|   🔬 DIAGNOSTIC MODAL FORMATEUR                    |');
+        $this->line('+====================================================+');
+
+        // 1. Vérifier controller create()
+        $this->line('');
+        $this->line('> 1. FormateurController@create');
+        $ctrlPath = app_path('Http/Controllers/Admin/FormateurController.php');
+        $ctrl = File::get($ctrlPath);
+
+        if (preg_match('/public function create\s*\([^)]*\)\s*\{(.*?)\n    \}/s', $ctrl, $m)) {
+            $body = $m[1];
+            if (str_contains($body, 'response()->json')) {
+                $this->info('   [OK] Renvoie du JSON');
+
+                if (str_contains($body, "'html'")) {
+                    $this->info("   [OK] Contient la clé 'html'");
+                } else {
+                    $this->error("   [X] Ne contient PAS la clé 'html' !");
+                }
+
+                if (str_contains($body, 'partials._form')) {
+                    $this->info('   [OK] Utilise partials._form');
+                } else {
+                    $this->error('   [X] N\'utilise PAS partials._form');
+                }
+            } else {
+                $this->error('   [X] Ne renvoie PAS de JSON');
+                $this->line('   Contenu actuel :');
+                $this->line($body);
+            }
+        } else {
+            $this->error('   [X] Méthode create() introuvable !');
+        }
+
+        // 2. Vérifier partial _form
+        $this->line('');
+        $this->line('> 2. Partial _form.blade.php');
+        $partialPath = resource_path('views/admin/formateurs/partials/_form.blade.php');
+        if (!File::exists($partialPath)) {
+            $this->error('   [X] Fichier introuvable !');
+        } else {
+            $this->info('   [OK] Fichier existe (' . File::size($partialPath) . ' octets)');
+            $partial = File::get($partialPath);
+            if (str_contains($partial, 'id="formateurForm"')) {
+                $this->info('   [OK] Contient id="formateurForm"');
+            } else {
+                $this->error('   [X] NE contient PAS id="formateurForm"');
+            }
+            if (str_contains($partial, '<form')) {
+                $this->info('   [OK] Contient <form>');
+            }
+        }
+
+        // 3. Vérifier index.blade.php
+        $this->line('');
+        $this->line('> 3. index.blade.php - Structure du modal');
+        $indexPath = resource_path('views/admin/formateurs/index.blade.php');
+        $index = File::get($indexPath);
+
+        $checks = [
+            'id="formateurModal"'         => 'Conteneur du modal',
+            'id="formateurFormContent"'   => 'Zone de contenu',
+            'id="submitBtn"'              => 'Bouton Enregistrer',
+            'openFormateurModal()'        => 'Fonction ouverture',
+            'closeFormateurModal()'       => 'Fonction fermeture',
+            'route("admin.formateurs.create")' => 'Route AJAX',
+            'X-Requested-With'            => 'Header AJAX',
+        ];
+
+        foreach ($checks as $needle => $label) {
+            if (str_contains($index, $needle)) {
+                $this->info("   [OK] {$label}");
+            } else {
+                $this->error("   [X] {$label} MANQUANT : '{$needle}'");
+            }
+        }
+
+        // 4. Extraire le bloc modal
+        $this->line('');
+        $this->line('> 4. Contenu du modal (extrait)');
+        $lines = explode("\n", $index);
+        $inModal = false;
+        $modalLines = [];
+        foreach ($lines as $i => $line) {
+            if (str_contains($line, 'id="formateurModal"')) {
+                $inModal = true;
+            }
+            if ($inModal) {
+                $modalLines[] = sprintf('%4d | %s', $i + 1, $line);
+                if (count($modalLines) > 60) break;
+            }
+        }
+        foreach ($modalLines as $l) {
+            $this->line($l);
+        }
+
+        // 5. Vérifier le rendu réel du partial
+        $this->line('');
+        $this->line('> 5. Test de rendu du partial _form');
+        try {
+            $etablissements = \Infrastructure\Persistence\Eloquent\Models\EtablissementModel::orderBy('nom')->limit(3)->get();
+            $filieres = \Infrastructure\Persistence\Eloquent\Models\FiliereModel::orderBy('libelle')->limit(3)->get();
+
+            $html = view('admin.formateurs.partials._form', compact('etablissements', 'filieres'))->render();
+            $this->info('   [OK] Rendu OK : ' . strlen($html) . ' octets');
+
+            if (str_contains($html, 'id="formateurForm"')) {
+                $this->info('   [OK] Contient id="formateurForm"');
+            }
+            if (str_contains($html, 'name="matricule"')) {
+                $this->info('   [OK] Contient input matricule');
+            }
+        } catch (\Throwable $e) {
+            $this->error('   [X] Erreur rendu : ' . $e->getMessage());
+        }
+
+        // 6. Vérifier les routes
+        $this->line('');
+        $this->line('> 6. Routes');
+        foreach (['admin.formateurs.create', 'admin.formateurs.store'] as $name) {
+            if (Route::has($name)) {
+                $r = Route::getRoutes()->getByName($name);
+                $this->info("   [OK] {$name} -> " . $r->uri() . ' [' . implode('|', $r->methods()) . ']');
+
+                // Middlewares
+                $middlewares = $r->gatherMiddleware();
+                $this->line('      Middlewares : ' . implode(', ', $middlewares));
+            } else {
+                $this->error("   [X] Route {$name} introuvable !");
+            }
+        }
+
+        // 7. Vérifier les logs récents
+        $this->line('');
+        $this->line('> 7. Dernières erreurs (log)');
+        $logPath = storage_path('logs/laravel.log');
+        if (File::exists($logPath)) {
+            $log = File::get($logPath);
+            $logLines = explode("\n", $log);
+            $recent = array_slice($logLines, -20);
+            foreach ($recent as $l) {
+                if (str_contains($l, 'ERROR') || str_contains($l, 'Exception')) {
+                    $this->line('   ' . substr($l, 0, 180));
+                }
+            }
+        }
+
+        $this->line('');
+        $this->line('+====================================================+');
+        $this->line('|   -> Copiez-collez TOUT ce rapport                 |');
+        $this->line('+====================================================+');
+
+        return self::SUCCESS;
+    }
+}
